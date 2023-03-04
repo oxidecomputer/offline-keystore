@@ -1,0 +1,15 @@
+[package]
+name = "yubihsm-split"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.69"
+clap = { version = "4.1.6", features = ["derive", "env"] }
+env_logger = "0.10.0"
+log = "0.4.17"
+# The latest version of this crate depends on a version of the ring crate that
+# has been yanked. Generally this crate appears to have been abandoned.
+rusty_secrets = "0.0.2"
+static_assertions = "1.1.0"
+yubihsm = { version = "0.41.0", features = ["usb"] }
