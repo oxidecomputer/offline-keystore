@@ -1,0 +1,22 @@
+name: test suite
+on: [push, pull_request]
+
+jobs:
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: sudo apt-get install -y pkg-config libudev-dev
+      - run: cargo clippy -- --deny warnings
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get install -y pkg-config libudev-dev
+      - run: cargo test --all-features
