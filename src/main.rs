@@ -3,12 +3,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use env_logger::Builder;
 use log::LevelFilter;
 use log::{debug, info};
 use static_assertions as sa;
 use std::io;
+
+use hex::ToHex;
 
 use yubihsm::object::{Id, Label};
 use yubihsm::{
@@ -32,10 +34,23 @@ sa::const_assert!(THRESHOLD <= SHARES);
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
+/// Create and restore split yubihsm wrap keys
 struct Args {
-    /// Get loud
+    /// Increase verbosity
     #[clap(long, env)]
     verbose: bool,
+
+    /// subcommands
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Create a new aes256-ccm-wrap key and split it into shares
+    Create,
+    /// Restore a previously split aes256-ccm-wrap key
+    Restore,
 }
 
 fn main() -> Result<()> {
@@ -58,9 +73,17 @@ fn main() -> Result<()> {
     let credentials = Credentials::default();
     let client = Client::open(connector, credentials, true)?;
 
+    match args.command {
+        Command::Create => create(&client),
+        Command::Restore => todo!("implement restore"),
+    }
+}
+
+fn create(client: &Client) -> Result<()> {
     // get 32 bytes from YubiHSM PRNG
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
-    debug!("got {} bytes from YubiHSM PRNG", KEY_LEN);
+    info!("got {} bytes from YubiHSM PRNG", KEY_LEN);
+    debug!("got wrap key: {}", wrap_key.encode_hex::<String>());
 
     // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
     let id = client
