@@ -75,8 +75,50 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Create => create(&client),
-        Command::Restore => todo!("implement restore"),
+        Command::Restore => restore(&client),
     }
+}
+
+fn restore(client: &Client) -> Result<()> {
+    let mut shares: Vec<String> = Vec::new();
+
+    for i in 1..=THRESHOLD {
+        println!("Enter share[{}]: ", i);
+        shares.push(io::stdin().lines().next().unwrap().unwrap());
+    }
+
+    for (i, share) in shares.iter().enumerate() {
+        println!("share[{}]: {}", i, share);
+    }
+
+    let wrap_key =
+        rusty_secrets::recover_secret(shares).unwrap_or_else(|err| {
+            println!("Unable to recover key: {}", err);
+            std::process::exit(1);
+        });
+
+    debug!("restored wrap key: {}", wrap_key.encode_hex::<String>());
+
+    // put restored wrap key the YubiHSM as an Aes256Ccm wrap key
+    let id = client
+        .put_wrap_key(
+            ID,
+            Label::from_bytes(LABEL.as_bytes())?,
+            DOMAIN,
+            CAPS,
+            DELEGATED_CAPS,
+            ALG,
+            wrap_key,
+        )
+        .with_context(|| {
+            format!(
+                "Failed to put wrap key into YubiHSM domains {:?} with id {}",
+                DOMAIN, ID
+            )
+        })?;
+    info!("wrap id: {}", id);
+
+    Ok(())
 }
 
 fn create(client: &Client) -> Result<()> {
