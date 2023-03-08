@@ -1,14 +1,15 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 use anyhow::Result;
 use log::{debug, error};
-use std::{
-    fs,
-    path::Path,
-};
+use std::{fs, path::Path};
 use thiserror::Error;
 use yubihsm::{
-    Capability, Client, Domain,
+    authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Type},
-    authentication::{self, DEFAULT_AUTHENTICATION_KEY_ID, Key},
+    Capability, Client, Domain,
 };
 use zeroize::Zeroize;
 
@@ -30,11 +31,7 @@ const AUTH_LABEL: &str = "admin";
 
 // create a new auth key, remove the default auth key, then export the new
 // auth key under the wrap key with the provided id
-pub fn personalize(
-    client: &Client,
-    wrap_id: Id,
-    out_dir: &Path,
-) -> Result<()> {
+pub fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
     debug!(
         "personalizing with wrap key {} and out_dir {}",
         wrap_id,
@@ -56,7 +53,7 @@ pub fn personalize(
     // not compatible with Zeroizing wrapper
     let auth_key = Key::derive_from_password(password.as_bytes());
 
-    debug!("putting new auth key");
+    debug!("putting new auth key from provided password");
     // create a new auth key
     client.put_authentication_key(
         AUTH_ID,
@@ -74,13 +71,9 @@ pub fn personalize(
         Type::AuthenticationKey,
     )?;
 
-    let msg = client.export_wrapped(
-        wrap_id,
-        Type::AuthenticationKey,
-        AUTH_ID,
-    )?;
-
-    debug!("msg: {:#?}", msg);
+    debug!("exporting new auth key under wrap-key w/ id: {}", wrap_id);
+    let msg =
+        client.export_wrapped(wrap_id, Type::AuthenticationKey, AUTH_ID)?;
 
     // include additional metadata (enough to reconstruct current state)?
     let msg_json = serde_json::to_string(&msg)?;
