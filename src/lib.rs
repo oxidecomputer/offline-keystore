@@ -4,8 +4,8 @@ use std::{path::PathBuf, process::Command};
 use thiserror::Error;
 use yubihsm::{
     Capability, Client, Domain,
-    object::Id,
-    authentication::{self, Key},
+    object::{Id, Type},
+    authentication::{self, DEFAULT_AUTHENTICATION_KEY_ID, Key},
 };
 use zeroize::Zeroize;
 
@@ -67,26 +67,10 @@ pub fn personalize(
         auth_key,
     )?;
 
-    // delete the default auth key
-    let mut cmd = Command::new("yubihsm-shell");
-    cmd.arg("--action")
-        .arg("delete-object")
-        .arg("--password")
-        .arg(&password)
-        .arg("--authkey")
-        .arg(AUTH_ID.to_string())
-        .arg("--object-id")
-        .arg(DEFAULT_AUTH_ID)
-        .arg("--object-type")
-        .arg("authentication-key");
-    debug!("executing command: {:#?}", cmd);
-
-    let output = cmd.output()?;
-    if !output.status.success() {
-        error!("failed to delete-object with status: {}", output.status);
-        error!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        return Err(HsmError::Version.into());
-    }
+    client.delete_object(
+        DEFAULT_AUTHENTICATION_KEY_ID,
+        Type::AuthenticationKey,
+    )?;
 
     // backup new auth key using our wrap key to file
     let mut cmd = Command::new("yubihsm-shell");
