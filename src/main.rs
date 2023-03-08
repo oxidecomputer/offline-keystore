@@ -10,6 +10,8 @@ use log::{debug, info};
 use static_assertions as sa;
 use std::io;
 use std::path::PathBuf;
+use std::fs;
+use tempfile::TempDir;
 
 use hex::ToHex;
 
@@ -159,8 +161,25 @@ fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
         })?;
     info!("wrap id: {}", id);
 
+    // make tmpdir, put everything here, copy to out_dir when we're done
+    let temp_dir = TempDir::new()?;
+    debug!("temp_dir: {}", temp_dir.path().to_string_lossy());
+
     // do the stuff from replace-auth.sh
-    yubihsm_split::personalize(&client, id, &out_dir)?;
+    yubihsm_split::personalize(&client, id, &temp_dir.path())?;
+
+    let paths = fs::read_dir(&temp_dir)?;
+    let mut from_paths = Vec::new();
+    for path in paths {
+        from_paths.push(path?.path());
+    }
+
+    debug!("moving {:#?} to {}", &from_paths, out_dir.display());
+    fs_extra::move_items(
+        &from_paths,
+        &out_dir,
+        &fs_extra::dir::CopyOptions::new(),
+    )?;
 
     let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
         .with_context(|| {
