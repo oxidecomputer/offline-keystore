@@ -9,12 +9,13 @@ use log::LevelFilter;
 use log::{debug, info};
 use static_assertions as sa;
 use std::io;
+use std::path::PathBuf;
 
 use hex::ToHex;
 
 use yubihsm::object::{Id, Label};
 use yubihsm::{
-    wrap, Capability, Client, Connector, Credentials, Domain, UsbConfig,
+    wrap, Capability, Client, Connector, Credentials, Domain, HttpConfig,
 };
 
 const ALG: wrap::Algorithm = wrap::Algorithm::Aes256Ccm;
@@ -39,6 +40,16 @@ struct Args {
     /// Increase verbosity
     #[clap(long, env)]
     verbose: bool,
+
+    /// Directory where HSM config description and CA state goes
+    /// TODO: coordinate this with OS?
+    #[clap(long, env, default_value = "./keystore-state")]
+    state: PathBuf,
+
+    /// Directory where public data goes
+    /// TODO: coordinate this with OS?
+    #[clap(long, env, default_value = "./public")]
+    public: PathBuf,
 
     /// subcommands
     #[command(subcommand)]
@@ -65,16 +76,17 @@ fn main() -> Result<()> {
     };
     builder.filter(None, level).init();
 
-    // connect to the first YubiHSM found over USB
-    // NOTE: yubihsm-connector is not required
-    let connector = Connector::usb(&UsbConfig::default());
+    // connect to the first YubiHSM found
+    // NOTE: we use the Http connector because we mix use of the rust API &
+    // yubihsm-shell commands
+    let connector = Connector::http(&HttpConfig::default());
     // this will only work if the default auth key is still available
     // the next step in our process must be: replace the default auth key
     let credentials = Credentials::default();
     let client = Client::open(connector, credentials, true)?;
 
     match args.command {
-        Command::Create => create(&client),
+        Command::Create => create(&client, &args.public),
         Command::Restore => restore(&client),
     }
 }
@@ -121,8 +133,9 @@ fn restore(client: &Client) -> Result<()> {
     Ok(())
 }
 
-fn create(client: &Client) -> Result<()> {
+fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
     // get 32 bytes from YubiHSM PRNG
+    // TODO: zeroize
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
     info!("got {} bytes from YubiHSM PRNG", KEY_LEN);
     debug!("got wrap key: {}", wrap_key.encode_hex::<String>());
@@ -145,6 +158,9 @@ fn create(client: &Client) -> Result<()> {
             )
         })?;
     info!("wrap id: {}", id);
+
+    // do the stuff from replace-auth.sh
+    yubihsm_split::personalize(id, &out_dir)?;
 
     let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
         .with_context(|| {
