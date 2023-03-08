@@ -8,9 +8,9 @@ use env_logger::Builder;
 use log::LevelFilter;
 use log::{debug, info};
 use static_assertions as sa;
+use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::fs;
 use tempfile::TempDir;
 
 use hex::ToHex;
@@ -144,7 +144,7 @@ fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
 
     // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
     let id = client
-        .put_wrap_key(
+        .put_wrap_key::<Vec<u8>>(
             ID,
             Label::from_bytes(LABEL.as_bytes())?,
             DOMAIN,
@@ -166,7 +166,7 @@ fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
     debug!("temp_dir: {}", temp_dir.path().to_string_lossy());
 
     // do the stuff from replace-auth.sh
-    yubihsm_split::personalize(&client, id, &temp_dir.path())?;
+    yubihsm_split::personalize(client, id, temp_dir.path())?;
 
     let paths = fs::read_dir(&temp_dir)?;
     let mut from_paths = Vec::new();
@@ -177,7 +177,7 @@ fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
     debug!("moving {:#?} to {}", &from_paths, out_dir.display());
     fs_extra::move_items(
         &from_paths,
-        &out_dir,
+        out_dir,
         &fs_extra::dir::CopyOptions::new(),
     )?;
 
@@ -222,10 +222,15 @@ fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// This "clears" the screen using terminal control characters. If your
+/// terminal has a scroll bar that can be used to scroll back to previous
+/// screens that had been "cleared".
 fn clear_screen() {
     print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
 }
 
+/// This function is used when displaying key shares as a way for the user to
+/// control progression through the key shares displayed in the terminal.
 fn wait_for_line() {
     let _ = io::stdin().lines().next().unwrap().unwrap();
 }
