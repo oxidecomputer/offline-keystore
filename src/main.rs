@@ -160,7 +160,7 @@ fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
     info!("wrap id: {}", id);
 
     // do the stuff from replace-auth.sh
-    yubihsm_split::personalize(id, &out_dir)?;
+    yubihsm_split::personalize(&client, id, &out_dir)?;
 
     let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
         .with_context(|| {
