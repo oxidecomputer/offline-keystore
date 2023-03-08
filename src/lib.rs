@@ -2,7 +2,11 @@ use anyhow::Result;
 use log::{debug, error};
 use std::{path::PathBuf, process::Command};
 use thiserror::Error;
-use yubihsm::object::Id;
+use yubihsm::{
+    Capability, Client, Domain,
+    object::Id,
+    authentication::{self, Key},
+};
 use zeroize::Zeroize;
 
 #[derive(Error, Debug)]
@@ -12,22 +16,25 @@ pub enum HsmError {
 }
 
 const PASSWD_PROMPT: &str = "Enter new HSM password: ";
-const PASSWD_PROMPT2: &str = "Enter same password again: ";
+const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
 // default password for YubiHSM2
-const DEFAULT_PASSWD: &str = "password";
 const DEFAULT_AUTH_ID: &str = "1";
 
 // consts for our authentication credential
-const AUTH_DOMAINS: &str = "all";
-const AUTH_CAPS: &str = "all";
-const AUTH_DELEGATED: &str = "all";
-const AUTH_ID: &str = "2";
+const AUTH_DOMAINS: Domain = Domain::all();
+const AUTH_CAPS: Capability = Capability::all();
+const AUTH_DELEGATED: Capability = Capability::all();
+const AUTH_ID: Id = 2;
 const AUTH_LABEL: &str = "admin";
 
 // create a new auth key, remove the default auth key, then export the new
 // auth key under the wrap key with the provided id
-pub fn personalize(wrap_id: Id, out_dir: &PathBuf) -> Result<()> {
+pub fn personalize(
+    client: &Client,
+    wrap_id: Id,
+    out_dir: &PathBuf,
+) -> Result<()> {
     debug!(
         "personalizing with wrap key {} and out_dir {}",
         wrap_id,
@@ -46,40 +53,19 @@ pub fn personalize(wrap_id: Id, out_dir: &PathBuf) -> Result<()> {
     };
     debug!("got the same password twice: {}", password);
 
-    // create a new auth key
-    let mut cmd = Command::new("yubihsm-shell");
-    cmd.arg("--action")
-        // this is 'put' instead of 'generate' because the YubiHSM derives
-        // a key from the password that we provide. This is the same as us
-        // using PBKDF2 to generate a key from the password, and then pushing
-        // in the key.
-        .arg("put-authentication-key")
-        .arg("--password")
-        .arg(DEFAULT_PASSWD)
-        .arg("--authkey")
-        .arg(DEFAULT_AUTH_ID)
-        .arg("--object-id")
-        .arg(AUTH_ID)
-        .arg("--domains")
-        .arg(AUTH_DOMAINS)
-        .arg("--capabilities")
-        .arg(AUTH_CAPS)
-        .arg("--delegated")
-        .arg(AUTH_DELEGATED)
-        .arg("--label")
-        .arg(AUTH_LABEL)
-        .arg("--new-password")
-        .arg(&password);
-    debug!("executing command: {:#?}", cmd);
+    // not compatible with Zeroizing wrapper
+    let auth_key = Key::derive_from_password(password.as_bytes());
 
-    let output = cmd.output()?;
-    if !output.status.success() {
-        error!("command failed with status: {}", output.status);
-        error!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        return Err(HsmError::Version.into());
-    } else {
-        debug!("command succeeded with output: {:#?}", output);
-    }
+    // create a new auth key
+    client.put_authentication_key(
+        AUTH_ID,
+        AUTH_LABEL.into(),
+        AUTH_DOMAINS,
+        AUTH_CAPS,
+        AUTH_DELEGATED,
+        authentication::Algorithm::default(), // can't be used in const
+        auth_key,
+    )?;
 
     // delete the default auth key
     let mut cmd = Command::new("yubihsm-shell");
@@ -88,7 +74,7 @@ pub fn personalize(wrap_id: Id, out_dir: &PathBuf) -> Result<()> {
         .arg("--password")
         .arg(&password)
         .arg("--authkey")
-        .arg(AUTH_ID)
+        .arg(AUTH_ID.to_string())
         .arg("--object-id")
         .arg(DEFAULT_AUTH_ID)
         .arg("--object-type")
