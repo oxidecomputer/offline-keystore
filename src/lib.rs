@@ -1,6 +1,9 @@
 use anyhow::Result;
 use log::{debug, error};
-use std::{path::PathBuf, process::Command};
+use std::{
+    fs,
+    path::Path,
+};
 use thiserror::Error;
 use yubihsm::{
     Capability, Client, Domain,
@@ -18,9 +21,6 @@ pub enum HsmError {
 const PASSWD_PROMPT: &str = "Enter new HSM password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
-// default password for YubiHSM2
-const DEFAULT_AUTH_ID: &str = "1";
-
 // consts for our authentication credential
 const AUTH_DOMAINS: Domain = Domain::all();
 const AUTH_CAPS: Capability = Capability::all();
@@ -33,7 +33,7 @@ const AUTH_LABEL: &str = "admin";
 pub fn personalize(
     client: &Client,
     wrap_id: Id,
-    out_dir: &PathBuf,
+    out_dir: &Path,
 ) -> Result<()> {
     debug!(
         "personalizing with wrap key {} and out_dir {}",
@@ -56,6 +56,7 @@ pub fn personalize(
     // not compatible with Zeroizing wrapper
     let auth_key = Key::derive_from_password(password.as_bytes());
 
+    debug!("putting new auth key");
     // create a new auth key
     client.put_authentication_key(
         AUTH_ID,
@@ -67,39 +68,31 @@ pub fn personalize(
         auth_key,
     )?;
 
+    debug!("deleting default auth key");
     client.delete_object(
         DEFAULT_AUTHENTICATION_KEY_ID,
         Type::AuthenticationKey,
     )?;
 
-    // backup new auth key using our wrap key to file
-    let mut cmd = Command::new("yubihsm-shell");
-    cmd.arg("--action")
-        .arg("get-wrapped")
-        .arg("--password")
-        .arg(&password)
-        .arg("--authkey")
-        // this is an assumption based on the default auth having id 1 and
-        // that we created our auth key before deleting the default one
-        .arg("2")
-        .arg("--wrap-id")
-        .arg(wrap_id.to_string())
-        .arg("--object-id")
-        .arg("2") // backing up the same auth key we're using to authenticate
-        .arg("--object-type")
-        .arg("authentication-key")
-        .arg("--out")
-        .arg("auth.enc")
-        .arg("--outformat")
-        .arg("base64");
-    debug!("executing command: {:#?}", cmd);
+    let msg = client.export_wrapped(
+        wrap_id,
+        Type::AuthenticationKey,
+        AUTH_ID,
+    )?;
 
-    let output = cmd.output()?;
-    if !output.status.success() {
-        error!("failed to get-wrapped auth with status: {}", output.status);
-        error!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        return Err(HsmError::Version.into());
-    }
+    debug!("msg: {:#?}", msg);
+
+    // include additional metadata (enough to reconstruct current state)?
+    let msg_json = serde_json::to_string(&msg)?;
+
+    debug!("msg_json: {:#?}", msg_json);
+
+    // we need to append a name for our file
+    let mut out_dir = out_dir.to_path_buf();
+    out_dir.push("auth.json");
+
+    debug!("writing to: {}", out_dir.display());
+    fs::write(out_dir, msg_json)?;
 
     password.zeroize();
 
