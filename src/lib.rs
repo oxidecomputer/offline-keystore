@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use log::{debug, error};
-use std::{fs, path::Path};
+use std::{fs, path::Path, str::FromStr};
 use thiserror::Error;
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
@@ -13,8 +13,14 @@ use yubihsm::{
 };
 use zeroize::Zeroize;
 
+pub mod config;
+
 #[derive(Error, Debug)]
 pub enum HsmError {
+    #[error("failed conversion from YubiHSM Domain")]
+    BadDomain,
+    #[error("failed conversion from YubiHSM Label")]
+    BadLabel,
     #[error("your yubihms is broke")]
     Version,
 }
@@ -28,6 +34,24 @@ const AUTH_CAPS: Capability = Capability::all();
 const AUTH_DELEGATED: Capability = Capability::all();
 const AUTH_ID: Id = 2;
 const AUTH_LABEL: &str = "admin";
+
+pub fn generate(client: &Client, key_spec: &Path) -> Result<()> {
+    let json = fs::read_to_string(key_spec)?;
+    debug!("spec as json: {}", json);
+
+    let spec = config::KeySpec::from_str(&json)?;
+    debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
+
+    let id = client.generate_asymmetric_key(
+        spec.id,
+        spec.label,
+        spec.domain,
+        spec.capabilities,
+        spec.algorithm,
+    )?;
+    debug!("new {:#?} key w/ id: {}", spec.algorithm, id);
+    Ok(())
+}
 
 // create a new auth key, remove the default auth key, then export the new
 // auth key under the wrap key with the provided id

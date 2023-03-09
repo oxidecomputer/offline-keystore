@@ -14,6 +14,7 @@ rpassword = "7.2.0"
 # The latest version of this crate depends on a version of the ring crate that
 # has been yanked. Generally this crate appears to have been abandoned.
 rusty_secrets = "0.0.2"
+serde = "1.0.153"
 serde_json = "1.0.94"
 static_assertions = "1.1.0"
 tempfile = "3.4.0"

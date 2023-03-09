@@ -17,7 +17,7 @@ use hex::ToHex;
 
 use yubihsm::object::{Id, Label};
 use yubihsm::{
-    wrap, Capability, Client, Connector, Credentials, Domain, HttpConfig,
+    wrap, Capability, Client, Connector, Credentials, Domain, UsbConfig,
 };
 
 const ALG: wrap::Algorithm = wrap::Algorithm::Aes256Ccm;
@@ -32,6 +32,9 @@ const LABEL: &str = "backup";
 
 const THRESHOLD: u8 = 3;
 const SHARES: u8 = 5;
+
+// TODO: convert from DEFAULT_AUTHENTICATION_KEY_ID
+const AUTH_KEY_ID: &str = "1";
 
 sa::const_assert!(THRESHOLD <= SHARES);
 
@@ -53,6 +56,12 @@ struct Args {
     #[clap(long, env, default_value = "./public")]
     public: PathBuf,
 
+    #[clap(long, env, default_value = AUTH_KEY_ID)]
+    auth_key_id: Id,
+
+    #[clap(long, env, default_value = "password")]
+    auth_passwd: String,
+
     /// subcommands
     #[command(subcommand)]
     command: Command,
@@ -62,9 +71,17 @@ struct Args {
 enum Command {
     /// Create a new aes256-ccm-wrap key and split it into shares
     Create,
+    /// Generate keys in YubiHSM from specification
+    Generate {
+        #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
+        key_spec: PathBuf,
+    },
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
 }
+
+// 2 minute to support RSA4K key generation
+const TIMEOUT_MS: u64 = 120000;
 
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -79,16 +96,32 @@ fn main() -> Result<()> {
     builder.filter(None, level).init();
 
     // connect to the first YubiHSM found
-    // NOTE: we use the Http connector because we mix use of the rust API &
+    // NOTE: don't use the http connector unless you have to
     // yubihsm-shell commands
-    let connector = Connector::http(&HttpConfig::default());
+    //let config = HttpConfig {
+    //    addr: "127.0.0.1".to_owned(),
+    //    port: 12345,
+    //    timeout_ms: TIMEOUT_MS,
+    //};
+    //let connector = Connector::http(&config);
+    let config = UsbConfig {
+        serial: None,
+        timeout_ms: TIMEOUT_MS,
+    };
+    let connector = Connector::usb(&config);
     // this will only work if the default auth key is still available
     // the next step in our process must be: replace the default auth key
-    let credentials = Credentials::default();
+    let credentials = Credentials::from_password(
+        args.auth_key_id,
+        args.auth_passwd.as_bytes(),
+    );
     let client = Client::open(connector, credentials, true)?;
 
     match args.command {
         Command::Create => create(&client, &args.public),
+        Command::Generate { key_spec } => {
+            yubihsm_split::generate(&client, &key_spec)
+        }
         Command::Restore => restore(&client),
     }
 }
