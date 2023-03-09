@@ -94,10 +94,10 @@ fn main() -> Result<()> {
     let client = Client::open(connector, credentials, true)?;
 
     match args.command {
-        Command::Initialize => yubihsm_split::initialize(&client, &args.public),
+        Command::Initialize => oks_util::initialize(&client, &args.public),
         Command::Generate { key_spec } => {
-            yubihsm_split::generate(&client, &key_spec)
+            oks_util::generate(&client, &key_spec)
         }
-        Command::Restore => yubihsm_split::restore(&client),
+        Command::Restore => oks_util::restore(&client),
     }
 }
