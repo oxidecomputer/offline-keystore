@@ -1110,6 +1110,7 @@ dependencies = [
  "log",
  "rpassword",
  "rusty_secrets",
+ "serde",
  "serde_json",
  "static_assertions",
  "tempfile",
