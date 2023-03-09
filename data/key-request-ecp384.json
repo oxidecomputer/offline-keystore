@@ -1,0 +1,8 @@
+{
+    "common_name": "RoT Identity Signing Offline CA",
+    "id": 2,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "label":"rot-identity-signing-ca"
+}
