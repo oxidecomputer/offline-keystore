@@ -42,13 +42,16 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Create a new aes256-ccm-wrap key and split it into shares
-    Create,
     /// Generate keys in YubiHSM from specification
     Generate {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
         key_spec: PathBuf,
     },
+    /// Initialize the YubiHSM by creating a new aes256-ccm-wrap key,
+    /// splitting it into shares, creating a new authentication key
+    /// personalized by the caller, and backing up this new auth key under
+    /// wrap.
+    Initialize,
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
 }
@@ -91,7 +94,7 @@ fn main() -> Result<()> {
     let client = Client::open(connector, credentials, true)?;
 
     match args.command {
-        Command::Create => yubihsm_split::create(&client, &args.public),
+        Command::Initialize => yubihsm_split::initialize(&client, &args.public),
         Command::Generate { key_spec } => {
             yubihsm_split::generate(&client, &key_spec)
         }

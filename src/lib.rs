@@ -124,7 +124,7 @@ pub fn restore(client: &Client) -> Result<()> {
 /// This new auth key is backed up / exported under wrap using the new wrap
 /// key. This backup is written to the provided directory path. Finally this
 /// function removes the default authentication credentials.
-pub fn create(client: &Client, out_dir: &PathBuf) -> Result<()> {
+pub fn initialize(client: &Client, out_dir: &PathBuf) -> Result<()> {
     // get 32 bytes from YubiHSM PRNG
     // TODO: zeroize
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
