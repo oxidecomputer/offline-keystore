@@ -4,5 +4,6 @@
     "algorithm":"Ecp384",
     "capabilities":"All",
     "domain":"DOM1",
+    "hash":"Sha384",
     "label":"rot-identity-signing-ca"
 }

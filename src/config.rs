@@ -82,12 +82,19 @@ impl From<OksCapability> for Capability {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub enum Hash {
+    Sha256,
+    Sha384,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 struct OksKeySpec {
     pub common_name: String,
     pub id: Id,
     pub algorithm: OksAlgorithm,
     pub capabilities: OksCapability,
     pub domain: OksDomain,
+    pub hash: Hash,
     pub label: OksLabel,
 }
 
@@ -98,6 +105,7 @@ pub struct KeySpec {
     pub algorithm: asymmetric::Algorithm,
     pub capabilities: Capability,
     pub domain: Domain,
+    pub hash: Hash,
     pub label: Label,
 }
 
@@ -121,6 +129,7 @@ impl TryFrom<OksKeySpec> for KeySpec {
             algorithm: spec.algorithm.into(),
             capabilities: spec.capabilities.into(),
             domain: spec.domain.into(),
+            hash: spec.hash,
             label: spec.label.try_into()?,
         })
     }
@@ -137,6 +146,7 @@ mod tests {
             "algorithm":"Rsa4096",
             "capabilities":"All",
             "domain":"DOM1",
+            "hash":"Sha256",
             "label":"rot-stage0-signing-root-eng-a"
         }"#;
 
@@ -179,6 +189,7 @@ mod tests {
         "algorithm":"Ecp384",
         "capabilities":"All",
         "domain":"DOM1",
+        "hash":"Sha384",
         "label":"rot-identity-signing-ca"
     }"#;
 

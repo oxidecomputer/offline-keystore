@@ -4,5 +4,6 @@
     "algorithm":"Rsa4096",
     "capabilities":"All",
     "domain":"DOM1",
+    "hash":"Sha256",
     "label":"rot-stage0-signing-root-eng-a"
 }
