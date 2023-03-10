@@ -40,12 +40,15 @@ struct Args {
     command: Command,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, PartialEq)]
 enum Command {
     /// Generate keys in YubiHSM from specification
     Generate {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
         key_spec: PathBuf,
+
+        #[clap(long, env, default_value = "1")]
+        wrap_id: Id,
     },
     /// Initialize the YubiHSM by creating a new aes256-ccm-wrap key,
     /// splitting it into shares, creating a new authentication key
@@ -54,6 +57,10 @@ enum Command {
     Initialize,
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
+    CaInit {
+        #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
+        key_spec: PathBuf,
+    },
 }
 
 // 2 minute to support RSA4K key generation
@@ -80,6 +87,11 @@ fn main() -> Result<()> {
     //    timeout_ms: TIMEOUT_MS,
     //};
     //let connector = Connector::http(&config);
+    if let Command::CaInit { key_spec } = args.command {
+        oks_util::ca_init(&key_spec, &args.public)?;
+        std::process::exit(0);
+    }
+
     let config = UsbConfig {
         serial: None,
         timeout_ms: TIMEOUT_MS,
@@ -95,9 +107,10 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Initialize => oks_util::initialize(&client, &args.public),
-        Command::Generate { key_spec } => {
-            oks_util::generate(&client, &key_spec)
+        Command::Generate { key_spec, wrap_id } => {
+            oks_util::generate(&client, &key_spec, wrap_id, &args.public)
         }
         Command::Restore => oks_util::restore(&client),
+        _ => Ok(()),
     }
 }
