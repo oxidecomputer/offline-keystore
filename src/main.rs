@@ -29,12 +29,6 @@ struct Args {
     #[clap(long, env, default_value = "./public")]
     public: PathBuf,
 
-    #[clap(long, env, default_value = AUTH_KEY_ID)]
-    auth_key_id: Id,
-
-    #[clap(long, env, default_value = "password")]
-    auth_passwd: String,
-
     /// subcommands
     #[command(subcommand)]
     command: Command,
@@ -47,6 +41,12 @@ enum Command {
         command: CaCommand,
     },
     Hsm {
+        #[clap(long, env, default_value = AUTH_KEY_ID)]
+        auth_id: Id,
+
+        #[clap(long, env)]
+        passwd: Option<String>,
+
         #[command(subcommand)]
         command: HsmCommand,
     },
@@ -59,7 +59,7 @@ enum CaCommand {
         key_spec: PathBuf,
     },
     Sign {
-        #[clap(long, env, default_value = "data/key-request-p384.json")]
+        #[clap(long, env, default_value = "data/key-request-ecp384.json")]
         key_spec: PathBuf,
 
         #[clap(long, env, default_value = "data/p384-sha384-csr.pem")]
@@ -101,27 +101,29 @@ fn main() -> Result<()> {
     };
     builder.filter(None, level).init();
 
-    // connect to the first YubiHSM found
-    // NOTE: don't use the http connector unless you have to
-    // yubihsm-shell commands
-    //let config = HttpConfig {
-    //    addr: "127.0.0.1".to_owned(),
-    //    port: 12345,
-    //    timeout_ms: TIMEOUT_MS,
-    //};
-    //let connector = Connector::http(&config);
     match args.command {
-        Command::Ca { command }  => {
-            match command {
-                CaCommand::Initialize { key_spec } => {
-                    oks_util::ca_init(&key_spec, &args.public)
-                }
-                CaCommand::Sign { key_spec, csr } => {
-                    oks_util::ca_sign(&key_spec, &csr, &args.public)
-                }
+        Command::Ca { command } => match command {
+            CaCommand::Initialize { key_spec } => {
+                oks_util::ca_init(&key_spec, &args.public)
+            }
+            CaCommand::Sign { key_spec, csr } => {
+                oks_util::ca_sign(&key_spec, &csr, &args.public)
             }
         },
-        Command::Hsm { command } => {
+        Command::Hsm { auth_id, passwd, command } => {
+            let passwd = match passwd {
+                Some(p) => p,
+                None => {
+                    match command {
+                        HsmCommand::Initialize => "password".to_string(),
+                        _ => {
+                    rpassword::prompt_password("Enter YubiHSM Password: ")
+                    .unwrap()
+                        }
+                    }
+                }
+            };
+
             let config = UsbConfig {
                 serial: None,
                 timeout_ms: TIMEOUT_MS,
@@ -129,16 +131,21 @@ fn main() -> Result<()> {
             let connector = Connector::usb(&config);
             // this will only work if the default auth key is still available
             // the next step in our process must be: replace the default auth key
-            let credentials = Credentials::from_password(
-                args.auth_key_id,
-                args.auth_passwd.as_bytes(),
-            );
+            let credentials =
+                Credentials::from_password(auth_id, passwd.as_bytes());
             let client = Client::open(connector, credentials, true)?;
 
             match command {
-                HsmCommand::Initialize => oks_util::initialize(&client, &args.public),
+                HsmCommand::Initialize => {
+                    oks_util::initialize(&client, &args.public)
+                }
                 HsmCommand::Generate { key_spec, wrap_id } => {
-                    oks_util::generate(&client, &key_spec, wrap_id, &args.public)
+                    oks_util::generate(
+                        &client,
+                        &key_spec,
+                        wrap_id,
+                        &args.public,
+                    )
                 }
                 HsmCommand::Restore => oks_util::restore(&client),
             }
