@@ -42,6 +42,33 @@ struct Args {
 
 #[derive(Subcommand, Debug, PartialEq)]
 enum Command {
+    Ca {
+        #[command(subcommand)]
+        command: CaCommand,
+    },
+    Hsm {
+        #[command(subcommand)]
+        command: HsmCommand,
+    },
+}
+
+#[derive(Subcommand, Debug, PartialEq)]
+enum CaCommand {
+    Initialize {
+        #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
+        key_spec: PathBuf,
+    },
+    Sign {
+        #[clap(long, env, default_value = "data/key-request-p384.json")]
+        key_spec: PathBuf,
+
+        #[clap(long, env, default_value = "data/p384-sha384-csr.pem")]
+        csr: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, PartialEq)]
+enum HsmCommand {
     /// Generate keys in YubiHSM from specification
     Generate {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
@@ -57,17 +84,6 @@ enum Command {
     Initialize,
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
-    CaInit {
-        #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
-        key_spec: PathBuf,
-    },
-    CaSign {
-        #[clap(long, env, default_value = "data/key-request-p384.json")]
-        key_spec: PathBuf,
-
-        #[clap(long, env, default_value = "data/p384-sha384-csr.pem")]
-        csr: PathBuf,
-    },
 }
 
 // 2 minute to support RSA4K key generation
@@ -95,36 +111,37 @@ fn main() -> Result<()> {
     //};
     //let connector = Connector::http(&config);
     match args.command {
-        Command::CaInit { key_spec } => {
-            oks_util::ca_init(&key_spec, &args.public)?;
-            std::process::exit(0);
-        }
-        Command::CaSign { key_spec, csr } => {
-            oks_util::ca_sign(&key_spec, &csr, &args.public)?;
-            std::process::exit(0);
-        }
-        _ => (),
-    }
+        Command::Ca { command }  => {
+            match command {
+                CaCommand::Initialize { key_spec } => {
+                    oks_util::ca_init(&key_spec, &args.public)
+                }
+                CaCommand::Sign { key_spec, csr } => {
+                    oks_util::ca_sign(&key_spec, &csr, &args.public)
+                }
+            }
+        },
+        Command::Hsm { command } => {
+            let config = UsbConfig {
+                serial: None,
+                timeout_ms: TIMEOUT_MS,
+            };
+            let connector = Connector::usb(&config);
+            // this will only work if the default auth key is still available
+            // the next step in our process must be: replace the default auth key
+            let credentials = Credentials::from_password(
+                args.auth_key_id,
+                args.auth_passwd.as_bytes(),
+            );
+            let client = Client::open(connector, credentials, true)?;
 
-    let config = UsbConfig {
-        serial: None,
-        timeout_ms: TIMEOUT_MS,
-    };
-    let connector = Connector::usb(&config);
-    // this will only work if the default auth key is still available
-    // the next step in our process must be: replace the default auth key
-    let credentials = Credentials::from_password(
-        args.auth_key_id,
-        args.auth_passwd.as_bytes(),
-    );
-    let client = Client::open(connector, credentials, true)?;
-
-    match args.command {
-        Command::Initialize => oks_util::initialize(&client, &args.public),
-        Command::Generate { key_spec, wrap_id } => {
-            oks_util::generate(&client, &key_spec, wrap_id, &args.public)
+            match command {
+                HsmCommand::Initialize => oks_util::initialize(&client, &args.public),
+                HsmCommand::Generate { key_spec, wrap_id } => {
+                    oks_util::generate(&client, &key_spec, wrap_id, &args.public)
+                }
+                HsmCommand::Restore => oks_util::restore(&client),
+            }
         }
-        Command::Restore => oks_util::restore(&client),
-        _ => Ok(()),
     }
 }
