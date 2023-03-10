@@ -37,6 +37,8 @@ pub enum HsmError {
     BadDomain,
     #[error("failed conversion from YubiHSM Label")]
     BadLabel,
+    #[error("failed to generate certificate")]
+    CertGenFail,
     #[error("failed to create self signed cert for key")]
     SelfCertGenFail,
     #[error("your yubihms is broke")]
@@ -248,6 +250,90 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
+    // deserialize spec file
+    let json = fs::read_to_string(key_spec)?;
+    debug!("spec as json: {}", json);
+
+    let spec = config::KeySpec::from_str(&json)?;
+    debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
+
+    // ugly stuff to keep paths right while changing pwd
+    let ca_dir = format!("{}/{}", out.display(), spec.label);
+    let csr_filename = csr.file_name().unwrap().to_os_string().into_string().unwrap();
+    let csr_dest = format!("{}/csr/{}", ca_dir, csr_filename);
+    debug!("copying csr from \"{}\" to \"{}\"", csr.display(), csr_dest);
+    std::fs::copy(csr, &csr_dest)?;
+
+    let csr_dest = format!("csr/{}", csr_filename);
+
+    // pushd into ca dir based on spec file
+    let pwd = std::env::current_dir()?;
+    debug!("got current directory: {:?}", pwd);
+
+    std::env::set_current_dir(&ca_dir)?;
+    debug!("setting current directory: {}", ca_dir);
+
+    use std::process::Command;
+
+    // start connector
+    debug!("starting connector");
+    let mut connector = Command::new("yubihsm-connector").spawn()?;
+
+    debug!("connector started");
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+
+    let csr_prefix = match csr_filename.find('.') {
+        Some(i) => csr_filename[..i].to_string(),
+        None => csr_filename,
+    };
+    let cert_filename = format!("certs/{}.cert.pem", csr_prefix);
+    debug!("writing cert to: {}", cert_filename);
+
+    // execute CA command
+    let mut cmd = Command::new("openssl");
+    let output = cmd
+        .arg("ca")
+        .arg("-batch")
+        .arg("-config")
+        .arg("openssl.cnf")
+        .arg("-engine")
+        .arg("pkcs11")
+        .arg("-keyform")
+        .arg("engine")
+        .arg("-keyfile")
+        .arg(format!("0:{:#04}", spec.id))
+        .arg("-in")
+        .arg(csr_dest)
+        .arg("-out")
+        .arg(&cert_filename)
+        .output()?;
+
+    info!("executing command: \"{:#?}\"", cmd);
+
+    if !output.status.success() {
+        warn!("command failed with status: {}", output.status);
+        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        connector.kill()?;
+        return Err(HsmError::CertGenFail.into());
+    }
+
+    // kill connector
+    connector.kill()?;
+
+    let cert = std::fs::read_to_string(cert_filename)?;
+
+    std::env::set_current_dir(pwd)?;
+
+    let cert_out = format!("{}/{}.cert.pem", out.display(), csr_prefix);
+    debug!("copying cert to {}", cert_out);
+    std::fs::write(cert_out, cert)?;
+
+    // copy cert from data/{spec.label}/certs/{
+
+    Ok(())
+}
+
 //
 fn bootstrap_ca(key_spec: &KeySpec, out_dir: &Path) -> Result<()> {
     // create CA directory from key_spec.label
@@ -258,7 +344,7 @@ fn bootstrap_ca(key_spec: &KeySpec, out_dir: &Path) -> Result<()> {
     fs::create_dir(&ca_dir)?;
 
     // create directories expected by `openssl ca` certs, crl, newcerts,
-    for dir in ["certs", "crl", "newcerts"] {
+    for dir in ["certs", "crl", "csr", "newcerts"] {
         ca_dir.push(dir);
         debug!("creating directory: {}?", ca_dir.display());
         fs::create_dir(&ca_dir)?;

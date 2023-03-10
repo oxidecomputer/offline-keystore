@@ -61,6 +61,13 @@ enum Command {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
         key_spec: PathBuf,
     },
+    CaSign {
+        #[clap(long, env, default_value = "data/key-request-p384.json")]
+        key_spec: PathBuf,
+
+        #[clap(long, env, default_value = "data/p384-sha384-csr.pem")]
+        csr: PathBuf,
+    },
 }
 
 // 2 minute to support RSA4K key generation
@@ -87,9 +94,16 @@ fn main() -> Result<()> {
     //    timeout_ms: TIMEOUT_MS,
     //};
     //let connector = Connector::http(&config);
-    if let Command::CaInit { key_spec } = args.command {
-        oks_util::ca_init(&key_spec, &args.public)?;
-        std::process::exit(0);
+    match args.command {
+        Command::CaInit { key_spec } => {
+            oks_util::ca_init(&key_spec, &args.public)?;
+            std::process::exit(0);
+        }
+        Command::CaSign { key_spec, csr } => {
+            oks_util::ca_sign(&key_spec, &csr, &args.public)?;
+            std::process::exit(0);
+        }
+        _ => (),
     }
 
     let config = UsbConfig {
