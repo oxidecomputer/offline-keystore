@@ -104,7 +104,7 @@ fn main() -> Result<()> {
                 oks_util::ca_init(&key_spec, &state, &args.public)
             }
             CaCommand::Sign { key_spec, csr } => {
-                oks_util::ca_sign(&key_spec, &csr, &args.public)
+                oks_util::ca_sign(&key_spec, &csr, &args.state, &args.public)
             }
         },
         Command::Hsm { command } => {
