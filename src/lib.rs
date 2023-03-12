@@ -7,7 +7,17 @@ use fs_extra::dir::CopyOptions;
 use hex::ToHex;
 use log::{debug, error, info, warn};
 use static_assertions as sa;
-use std::{fs, io, path::Path, str::FromStr};
+use std::{
+    env,
+    fs::{self, Permissions},
+    io,
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    process::Command,
+    str::FromStr,
+    thread,
+    time::Duration,
+};
 use tempdir::TempDir;
 use thiserror::Error;
 use yubihsm::{
@@ -122,11 +132,10 @@ default_ca                  = CA_default
 
 [ CA_default ]
 dir                         = ./
-certs                       = $dir/certs
 crl_dir                     = $dir/crl
 database                    = $dir/index.txt
 new_certs_dir               = $dir/newcerts
-certificate                 = $dir/certs/ca.cert.pem
+certificate                 = $dir/ca.cert.pem
 serial                      = $dir/serial
 # key format:   <slot>:<key id>
 private_key                 = 0:{key:#04}
@@ -188,13 +197,11 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
 
     bootstrap_ca(&spec)?;
 
-    use std::process::Command;
-
     debug!("starting connector");
     let mut connector = Command::new("yubihsm-connector").spawn()?;
 
     debug!("connector started");
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(1000));
 
     // We're chdir-ing around and that makes it a PITA to keep track of file
     // paths. Stashing everything in a tempdir make it easier to copy it all
@@ -229,7 +236,6 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         return Err(HsmError::SelfCertGenFail.into());
     }
 
-    let cert = tmp_dir.path().join(format!("{}.cert.pem", label));
     let mut cmd = Command::new("openssl");
     let output = cmd
         .arg("ca")
@@ -247,7 +253,7 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg(&csr)
         .arg("-out")
         // putting this in a TempDir will make it easier to copy it around later
-        .arg(&cert)
+        .arg("ca.cert.pem")
         .output()?;
 
     info!("executing command: \"{:#?}\"", cmd);
@@ -261,20 +267,28 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
 
     connector.kill()?;
 
-    std::env::set_current_dir(pwd)?;
+    let cert = tmp_dir.path().join(format!("{}.cert.pem", label));
+    fs::copy("ca.cert.pem", cert)?;
+
+    env::set_current_dir(pwd)?;
 
     // copy contents of temp directory to out
     debug!("tmpdir: {:?}", tmp_dir);
     let paths = fs::read_dir(tmp_dir.path())?
         .map(|res| res.map(|e| e.path()))
         .collect::<Result<Vec<_>, io::Error>>()?;
-    let opts = CopyOptions::default();
+    let opts = CopyOptions::default().overwrite(true);
     fs_extra::move_items(&paths, out, &opts)?;
 
     Ok(())
 }
 
-pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
+pub fn ca_sign(
+    key_spec: &Path,
+    csr: &Path,
+    state: &Path,
+    publish: &Path,
+) -> Result<()> {
     // deserialize spec file
     let json = fs::read_to_string(key_spec)?;
     debug!("spec as json: {}", json);
@@ -282,28 +296,19 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
     let spec = config::KeySpec::from_str(&json)?;
     debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
 
-    // ugly stuff to keep paths right while changing pwd
-    let ca_dir = format!("{}/{}", out.display(), spec.label);
-    let csr_filename = csr
-        .file_name()
-        .unwrap()
-        .to_os_string()
-        .into_string()
-        .unwrap();
-    let csr_dest = format!("{}/csr/{}", ca_dir, csr_filename);
-    debug!("copying csr from \"{}\" to \"{}\"", csr.display(), csr_dest);
-    std::fs::copy(csr, &csr_dest)?;
-
-    let csr_dest = format!("csr/{}", csr_filename);
+    // get canonical path to CSR before chdir into CA dir
+    let csr = fs::canonicalize(csr)?;
+    debug!("canonical CSR: {}", csr.display());
+    let publish = fs::canonicalize(publish)?;
+    debug!("canonical publish: {}", publish.display());
 
     // pushd into ca dir based on spec file
     let pwd = std::env::current_dir()?;
     debug!("got current directory: {:?}", pwd);
 
+    let ca_dir = state.join(spec.label.to_string());
     std::env::set_current_dir(&ca_dir)?;
-    debug!("setting current directory: {}", ca_dir);
-
-    use std::process::Command;
+    debug!("setting current directory: {}", ca_dir.display());
 
     // start connector
     debug!("starting connector");
@@ -312,12 +317,19 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
     debug!("connector started");
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
+    // cert file name takes prefix from CSR file name, appends ".cert.pem"
+    debug!("canonical csr: {}", csr.display());
+    let csr_filename = csr
+        .file_name()
+        .unwrap()
+        .to_os_string()
+        .into_string()
+        .unwrap();
     let csr_prefix = match csr_filename.find('.') {
         Some(i) => csr_filename[..i].to_string(),
         None => csr_filename,
     };
-    let cert_filename = format!("certs/{}.cert.pem", csr_prefix);
-    debug!("writing cert to: {}", cert_filename);
+    let cert = publish.join(format!("{}.cert.pem", csr_prefix));
 
     // execute CA command
     let mut cmd = Command::new("openssl");
@@ -333,9 +345,9 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
         .arg("-keyfile")
         .arg(format!("0:{:#04}", spec.id))
         .arg("-in")
-        .arg(csr_dest)
+        .arg(&csr)
         .arg("-out")
-        .arg(&cert_filename)
+        .arg(&cert)
         .output()?;
 
     info!("executing command: \"{:#?}\"", cmd);
@@ -350,30 +362,20 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
     // kill connector
     connector.kill()?;
 
-    let cert = std::fs::read_to_string(cert_filename)?;
-
     std::env::set_current_dir(pwd)?;
-
-    let cert_out = format!("{}/{}.cert.pem", out.display(), csr_prefix);
-    debug!("copying cert to {}", cert_out);
-    std::fs::write(cert_out, cert)?;
-
-    // copy cert from data/{spec.label}/certs/{
 
     Ok(())
 }
 
 /// Create the directory structure and initial files expected by the `openssl ca` tool.
 fn bootstrap_ca(key_spec: &KeySpec) -> Result<()> {
-    // create directories expected by `openssl ca` certs, crl, newcerts,
-    for dir in ["certs", "crl", "csr", "newcerts"] {
+    // create directories expected by `openssl ca`: crl, newcerts
+    for dir in ["crl", "newcerts"] {
         debug!("creating directory: {}?", dir);
         fs::create_dir(dir)?;
     }
 
     // the 'private' directory is a special case w/ restricted permissions
-    use std::fs::Permissions;
-    use std::os::unix::fs::PermissionsExt;
     let priv_dir = "private";
     debug!("creating directory: {}?", priv_dir);
     fs::create_dir(priv_dir)?;
