@@ -3,10 +3,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::{Context, Result};
+use fs_extra::dir::CopyOptions;
 use hex::ToHex;
 use log::{debug, error, info, warn};
 use static_assertions as sa;
 use std::{fs, io, path::Path, str::FromStr};
+use tempdir::TempDir;
 use thiserror::Error;
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
@@ -163,7 +165,7 @@ basicConstraints            = critical,CA:true
     };
 }
 
-pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
+pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     let json = fs::read_to_string(key_spec)?;
     debug!("spec as json: {}", json);
 
@@ -174,11 +176,17 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
     debug!("got current directory: {:?}", pwd);
 
     // setup CA directory structure
-    bootstrap_ca(&spec, out)?;
-
-    let ca_dir = format!("{}/{}", out.display(), spec.label);
+    let label = spec.label.to_string();
+    let ca_dir = ca_state.join(&label);
+    info!("bootstrapping CA files in: {}", ca_dir.display());
+    fs::create_dir(&ca_dir)?;
+    debug!("setting current directory: {}", ca_dir.display());
     std::env::set_current_dir(&ca_dir)?;
-    debug!("setting current directory: {}", ca_dir);
+
+    // copy the key spec file to the ca state dir
+    fs::write("key.spec", json)?;
+
+    bootstrap_ca(&spec)?;
 
     use std::process::Command;
 
@@ -186,7 +194,13 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
     let mut connector = Command::new("yubihsm-connector").spawn()?;
 
     debug!("connector started");
-    std::thread::sleep(std::time::Duration::from_millis(2000));
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // We're chdir-ing around and that makes it a PITA to keep track of file
+    // paths. Stashing everything in a tempdir make it easier to copy it all
+    // out when we're done.
+    let tmp_dir = TempDir::new("ca-init")?;
+    let csr = tmp_dir.path().join(format!("{}.csr.pem", label));
 
     let mut cmd = Command::new("openssl");
     let output = cmd
@@ -203,7 +217,7 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
         .arg("-key")
         .arg(format!("0:{:#04}", spec.id))
         .arg("-out")
-        .arg("csr.pem")
+        .arg(&csr)
         .output()?;
 
     info!("executing command: \"{:#?}\"", cmd);
@@ -215,6 +229,7 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
         return Err(HsmError::SelfCertGenFail.into());
     }
 
+    let cert = tmp_dir.path().join(format!("{}.cert.pem", label));
     let mut cmd = Command::new("openssl");
     let output = cmd
         .arg("ca")
@@ -229,9 +244,10 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
         .arg("-keyfile")
         .arg(format!("0:{:#04}", spec.id))
         .arg("-in")
-        .arg("csr.pem")
+        .arg(&csr)
         .arg("-out")
-        .arg("certs/ca.cert.pem")
+        // putting this in a TempDir will make it easier to copy it around later
+        .arg(&cert)
         .output()?;
 
     info!("executing command: \"{:#?}\"", cmd);
@@ -247,6 +263,14 @@ pub fn ca_init(key_spec: &Path, out: &Path) -> Result<()> {
 
     std::env::set_current_dir(pwd)?;
 
+    // copy contents of temp directory to out
+    debug!("tmpdir: {:?}", tmp_dir);
+    let paths = fs::read_dir(tmp_dir.path())?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, io::Error>>()?;
+    let opts = CopyOptions::default();
+    fs_extra::move_items(&paths, out, &opts)?;
+
     Ok(())
 }
 
@@ -260,7 +284,12 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
 
     // ugly stuff to keep paths right while changing pwd
     let ca_dir = format!("{}/{}", out.display(), spec.label);
-    let csr_filename = csr.file_name().unwrap().to_os_string().into_string().unwrap();
+    let csr_filename = csr
+        .file_name()
+        .unwrap()
+        .to_os_string()
+        .into_string()
+        .unwrap();
     let csr_dest = format!("{}/csr/{}", ca_dir, csr_filename);
     debug!("copying csr from \"{}\" to \"{}\"", csr.display(), csr_dest);
     std::fs::copy(csr, &csr_dest)?;
@@ -281,7 +310,7 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
     let mut connector = Command::new("yubihsm-connector").spawn()?;
 
     debug!("connector started");
-    std::thread::sleep(std::time::Duration::from_millis(2000));
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     let csr_prefix = match csr_filename.find('.') {
         Some(i) => csr_filename[..i].to_string(),
@@ -334,70 +363,47 @@ pub fn ca_sign(key_spec: &Path, csr: &Path, out: &Path) -> Result<()> {
     Ok(())
 }
 
-//
-fn bootstrap_ca(key_spec: &KeySpec, out_dir: &Path) -> Result<()> {
-    // create CA directory from key_spec.label
-    let mut ca_dir = out_dir.to_path_buf();
-    ca_dir.push(key_spec.label.to_string());
-    info!("bootstrapping CA files in: {}", ca_dir.display());
-    debug!("creating directory: {}", ca_dir.display());
-    fs::create_dir(&ca_dir)?;
-
+/// Create the directory structure and initial files expected by the `openssl ca` tool.
+fn bootstrap_ca(key_spec: &KeySpec) -> Result<()> {
     // create directories expected by `openssl ca` certs, crl, newcerts,
     for dir in ["certs", "crl", "csr", "newcerts"] {
-        ca_dir.push(dir);
-        debug!("creating directory: {}?", ca_dir.display());
-        fs::create_dir(&ca_dir)?;
-        ca_dir.pop();
+        debug!("creating directory: {}?", dir);
+        fs::create_dir(dir)?;
     }
 
     // the 'private' directory is a special case w/ restricted permissions
     use std::fs::Permissions;
     use std::os::unix::fs::PermissionsExt;
-    ca_dir.push("private");
-    debug!("creating directory: {}?", ca_dir.display());
-    fs::create_dir(&ca_dir)?;
+    let priv_dir = "private";
+    debug!("creating directory: {}?", priv_dir);
+    fs::create_dir(priv_dir)?;
     let perms = Permissions::from_mode(0o700);
     debug!(
         "setting permissions on directory {} to {:#?}",
-        ca_dir.display(),
-        perms
+        priv_dir, perms
     );
-    fs::set_permissions(&ca_dir, perms)?;
-    ca_dir.pop();
+    fs::set_permissions(priv_dir, perms)?;
 
     // touch 'index.txt' file
     use std::fs::OpenOptions;
-    ca_dir.push("index.txt");
-    debug!("touching file {}", ca_dir.display());
-    OpenOptions::new().create(true).write(true).open(&ca_dir)?;
-    ca_dir.pop();
+    let index = "index.txt";
+    debug!("touching file {}", index);
+    OpenOptions::new().create(true).write(true).open(index)?;
 
     // write initial serial number to 'serial' (echo 1000 > serial)
-    ca_dir.push("serial");
+    let serial = "serial";
     let sn = 1000u32;
     debug!(
-        "setting initial serial number to {} in file {}",
-        sn,
-        ca_dir.display()
+        "setting initial serial number to \"{}\" in file \"{}\"",
+        sn, serial
     );
-    fs::write(&ca_dir, sn.to_string())?;
-    ca_dir.pop();
+    fs::write(serial, sn.to_string())?;
 
     // create & write out an openssl.cnf
-    ca_dir.push("openssl.cnf");
     fs::write(
-        &ca_dir,
+        "openssl.cnf",
         format!(openssl_cnf_fmt!(), key = key_spec.id, hash = key_spec.hash),
     )?;
-    ca_dir.pop();
-
-    // TODO: I'd like to generate self signed certs for the CA created here
-    // but we're using the USB connector and it can't be closed so that we
-    // can start the yubihsm-connector process :(
-    // NOTE: the yubihsm.rs example http server doesn't work with the
-    // yubihsm-shell I've got installed, fails with
-    // "Unable to find a suitable connector"
 
     Ok(())
 }

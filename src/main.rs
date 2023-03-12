@@ -9,8 +9,6 @@ use log::LevelFilter;
 use std::path::PathBuf;
 use yubihsm::{object::Id, Client, Connector, Credentials, UsbConfig};
 
-const AUTH_KEY_ID: &str = "1";
-
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 /// Create and restore split yubihsm wrap keys
@@ -21,12 +19,12 @@ struct Args {
 
     /// Directory where HSM config description and CA state goes
     /// TODO: coordinate this with OS?
-    #[clap(long, env, default_value = "./keystore-state")]
+    #[clap(long, env, default_value = "./oks-state")]
     state: PathBuf,
 
     /// Directory where public data goes
     /// TODO: coordinate this with OS?
-    #[clap(long, env, default_value = "./public")]
+    #[clap(long, env, default_value = "./oks-publish")]
     public: PathBuf,
 
     /// subcommands
@@ -41,12 +39,6 @@ enum Command {
         command: CaCommand,
     },
     Hsm {
-        #[clap(long, env, default_value = AUTH_KEY_ID)]
-        auth_id: Id,
-
-        #[clap(long, env)]
-        passwd: Option<String>,
-
         #[command(subcommand)]
         command: HsmCommand,
     },
@@ -54,22 +46,30 @@ enum Command {
 
 #[derive(Subcommand, Debug, PartialEq)]
 enum CaCommand {
+    /// Initialize an OpenSSL CA for the given key.
+    /// NOTE: This key must exist in the HSM.
     Initialize {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
         key_spec: PathBuf,
+
+        /// Directory where OKM state and CA directories are stored.
+        #[clap(long, env, default_value = "oks-state")]
+        state: PathBuf,
     },
+    /// Use the CA associated with the provided key spec to sign the
+    /// provided CSR.
     Sign {
         #[clap(long, env, default_value = "data/key-request-ecp384.json")]
         key_spec: PathBuf,
 
-        #[clap(long, env, default_value = "data/p384-sha384-csr.pem")]
+        #[clap(long, env, default_value = "data/p384-sha384.csr.pem")]
         csr: PathBuf,
     },
 }
 
 #[derive(Subcommand, Debug, PartialEq)]
 enum HsmCommand {
-    /// Generate keys in YubiHSM from specification
+    /// Generate keys in YubiHSM from specification.
     Generate {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
         key_spec: PathBuf,
@@ -77,10 +77,7 @@ enum HsmCommand {
         #[clap(long, env, default_value = "1")]
         wrap_id: Id,
     },
-    /// Initialize the YubiHSM by creating a new aes256-ccm-wrap key,
-    /// splitting it into shares, creating a new authentication key
-    /// personalized by the caller, and backing up this new auth key under
-    /// wrap.
+    /// Initialize the YubiHSM for use in the OKS.
     Initialize,
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
@@ -103,25 +100,28 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Ca { command } => match command {
-            CaCommand::Initialize { key_spec } => {
-                oks_util::ca_init(&key_spec, &args.public)
+            CaCommand::Initialize { key_spec, state } => {
+                oks_util::ca_init(&key_spec, &state, &args.public)
             }
             CaCommand::Sign { key_spec, csr } => {
                 oks_util::ca_sign(&key_spec, &csr, &args.public)
             }
         },
-        Command::Hsm { auth_id, passwd, command } => {
-            let passwd = match passwd {
-                Some(p) => p,
-                None => {
-                    match command {
-                        HsmCommand::Initialize => "password".to_string(),
-                        _ => {
-                    rpassword::prompt_password("Enter YubiHSM Password: ")
-                    .unwrap()
-                        }
-                    }
-                }
+        Command::Hsm { command } => {
+            // For 'initialize' subcommand we assume the YubiHSM is in its
+            // default state: auth key id is 1, password is 'password'.
+            // Any other HSM subcommand we assume:
+            // - the auth id is 2 which is the id of the auth key created
+            //   during initialization
+            // - the user will be prompted for a password
+            let passwd = match command {
+                HsmCommand::Initialize => "password".to_string(),
+                _ => rpassword::prompt_password("Enter YubiHSM Password: ")
+                    .unwrap(),
+            };
+            let auth_id = match command {
+                HsmCommand::Initialize => 1, // default auth key id for YubiHSM
+                _ => 2, // auth key id we create in initialize
             };
 
             let config = UsbConfig {
@@ -140,6 +140,8 @@ fn main() -> Result<()> {
                     oks_util::initialize(&client, &args.public)
                 }
                 HsmCommand::Generate { key_spec, wrap_id } => {
+                    // For the keys we create we need to copy the key spec
+                    // file over to the ca-state directory.
                     oks_util::generate(
                         &client,
                         &key_spec,
