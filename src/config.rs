@@ -87,6 +87,15 @@ pub enum Hash {
     Sha384,
 }
 
+/// Values in this enum are mapped to OpenSSL config sections for v3 extensions.
+/// All certs issued by the OKS are assumed to be intermediate CAs.
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub enum Purpose {
+    ProductionCodeSigning,
+    DevelopmentCodeSigning,
+    Identity,
+}
+
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 struct OksKeySpec {
     pub common_name: String,
@@ -96,6 +105,7 @@ struct OksKeySpec {
     pub domain: OksDomain,
     pub hash: Hash,
     pub label: OksLabel,
+    pub purpose: Purpose,
 }
 
 #[derive(Debug)]
@@ -107,6 +117,7 @@ pub struct KeySpec {
     pub domain: Domain,
     pub hash: Hash,
     pub label: Label,
+    pub purpose: Purpose,
 }
 
 impl FromStr for KeySpec {
@@ -131,6 +142,7 @@ impl TryFrom<OksKeySpec> for KeySpec {
             domain: spec.domain.into(),
             hash: spec.hash,
             label: spec.label.try_into()?,
+            purpose: spec.purpose,
         })
     }
 }
@@ -147,7 +159,8 @@ mod tests {
             "capabilities":"All",
             "domain":"DOM1",
             "hash":"Sha256",
-            "label":"rot-stage0-signing-root-eng-a"
+            "label":"rot-stage0-signing-root-eng-a",
+            "purpose":"ProductionCodeSigning"
         }"#;
 
     #[test]
@@ -190,7 +203,8 @@ mod tests {
         "capabilities":"All",
         "domain":"DOM1",
         "hash":"Sha384",
-        "label":"rot-identity-signing-ca"
+        "label":"rot-identity-signing-ca",
+        "purpose":"DevelopmentCodeSigning"
     }"#;
 
     #[test]
@@ -205,6 +219,25 @@ mod tests {
             OksLabel("rot-identity-signing-ca".to_string())
         );
         assert_eq!(key_spec.algorithm, OksAlgorithm::Ecp384);
+        assert_eq!(key_spec.purpose, Purpose::DevelopmentCodeSigning);
+        Ok(())
+    }
+
+    const JSON_IDENTITY: &str = r#"{
+        "common_name": "RoT Identity Signing Offline CA",
+        "id": 2,
+        "algorithm":"Ecp384",
+        "capabilities":"All",
+        "domain":"DOM1",
+        "hash":"Sha384",
+        "label":"rot-identity-signing-ca",
+        "purpose":"Identity"
+    }"#;
+
+    #[test]
+    fn test_extensions_engineering() -> Result<()> {
+        let key_spec: OksKeySpec = serde_json::from_str(&JSON_IDENTITY)?;
+        assert_eq!(key_spec.purpose, Purpose::Identity);
         Ok(())
     }
 }
