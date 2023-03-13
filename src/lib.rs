@@ -29,7 +29,7 @@ use zeroize::Zeroize;
 
 pub mod config;
 
-use config::KeySpec;
+use config::{KeySpec, Purpose};
 
 const ALG: wrap::Algorithm = wrap::Algorithm::Aes256Ccm;
 const CAPS: Capability = Capability::all();
@@ -114,6 +114,7 @@ openssl_conf                = default_modules
 
 [default_modules]
 engines                     = engine_section
+oid_section                 = OIDs
 
 [engine_section]
 pkcs11                      = pkcs11_section
@@ -139,7 +140,6 @@ certificate                 = $dir/ca.cert.pem
 serial                      = $dir/serial
 # key format:   <slot>:<key id>
 private_key                 = 0:{key:#04}
-x509_extensions             = v3_ca
 name_opt                    = ca_default
 cert_opt                    = ca_default
 # certs may be retired, but they won't expire
@@ -162,14 +162,27 @@ emailAddress                = optional
 
 [ req ]
 default_md                  = {hash:?}
-x509_extensions             = v3_ca
 string_mask                 = utf8only
 default_enddate             = 99991231235959Z
 
-[ v3_ca ]
+[ v3_code_signing_prod ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
+
+[ v3_code_signing_dev ]
+subjectKeyIdentifier        = hash
+authorityKeyIdentifier      = keyid:always,issuer
+basicConstraints            = critical,CA:true
+extendedKeyUsage            = critical,development-device-only
+
+[ v3_identity ]
+subjectKeyIdentifier        = hash
+authorityKeyIdentifier      = keyid:always,issuer
+basicConstraints            = critical,CA:true
+
+[ OIDs ]
+development-device-only = 1.3.6.1.4.1.57551.1
 "#
     };
 }
@@ -236,9 +249,11 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         return Err(HsmError::SelfCertGenFail.into());
     }
 
+    //  generate cert for CA root
+    //  select v3 extensions from ... key spec?
     let mut cmd = Command::new("openssl");
-    let output = cmd
-        .arg("ca")
+
+    cmd.arg("ca")
         .arg("-batch")
         .arg("-selfsign")
         .arg("-config")
@@ -252,9 +267,24 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg("-in")
         .arg(&csr)
         .arg("-out")
-        // putting this in a TempDir will make it easier to copy it around later
-        .arg("ca.cert.pem")
-        .output()?;
+        .arg("ca.cert.pem");
+
+    // This is a bit ugly. It's where the name of config sections from
+    // openssl.cnf meet up with structures from the config module.
+    cmd.arg("-extensions");
+    match spec.purpose {
+        Purpose::ProductionCodeSigning => {
+            cmd.arg("v3_code_signing_prod");
+        }
+        Purpose::DevelopmentCodeSigning => {
+            cmd.arg("v3_code_signing_dev");
+        }
+        Purpose::Identity => {
+            cmd.arg("v3_identity");
+        }
+    }
+
+    let output = cmd.output()?;
 
     info!("executing command: \"{:#?}\"", cmd);
 
