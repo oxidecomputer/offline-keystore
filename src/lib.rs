@@ -92,7 +92,7 @@ pub fn generate(
     debug!("exported asymmetric key: {:#?}", msg_json);
 
     let mut out_pathbuf = out_dir.to_path_buf();
-    out_pathbuf.push(format!("{}.json", spec.label));
+    out_pathbuf.push(format!("{}.wrap.json", spec.label));
 
     debug!("writing to: {}", out_pathbuf.display());
     fs::write(out_pathbuf, msg_json)?;
@@ -591,7 +591,7 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
 
     // we need to append a name for our file
     let mut out_dir = out_dir.to_path_buf();
-    out_dir.push(format!("{}.json", AUTH_LABEL));
+    out_dir.push(format!("{}.wrap.json", AUTH_LABEL));
 
     debug!("writing to: {}", out_dir.display());
     fs::write(out_dir, msg_json)?;
