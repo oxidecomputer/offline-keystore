@@ -169,17 +169,20 @@ default_enddate             = 99991231235959Z
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
+keyUsage                    = critical, keyCertSign, cRLSign
 
 [ v3_code_signing_dev ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
+keyUsage                    = critical, keyCertSign, cRLSign
 extendedKeyUsage            = critical,development-device-only
 
 [ v3_identity ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
+keyUsage                    = critical, keyCertSign, cRLSign
 
 [ OIDs ]
 development-device-only = 1.3.6.1.4.1.57551.1
