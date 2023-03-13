@@ -1,10 +1,10 @@
 {
-    "common_name": "RoT Identity Signing Offline CA",
-    "id": 2,
+    "common_name": "RoT Identity Offline CA",
+    "id": 3,
     "algorithm":"Ecp384",
     "capabilities":"All",
     "domain":"DOM1",
     "hash":"Sha384",
-    "label":"rot-identity-signing-ca",
+    "label":"rot-identity-a",
     "purpose":"Identity"
 }

@@ -49,6 +49,8 @@ pub enum HsmError {
     BadDomain,
     #[error("failed conversion from YubiHSM Label")]
     BadLabel,
+    #[error("Invalid purpose for root CA key")]
+    BadPurpose,
     #[error("failed to generate certificate")]
     CertGenFail,
     #[error("failed to create self signed cert for key")]
@@ -96,11 +98,6 @@ pub fn generate(
 
     debug!("writing to: {}", out_pathbuf.display());
     fs::write(out_pathbuf, msg_json)?;
-
-    debug!(
-        "bootstrapping CA files for key with label: {}",
-        spec.label.to_string()
-    );
 
     Ok(())
 }
@@ -165,18 +162,31 @@ default_md                  = {hash:?}
 string_mask                 = utf8only
 default_enddate             = 99991231235959Z
 
-[ v3_code_signing_prod ]
+[ v3_code_signing_prod_ca ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
 
-[ v3_code_signing_dev ]
+[ v3_code_signing_prod ]
+subjectKeyIdentifier        = hash
+authorityKeyIdentifier      = keyid:always,issuer
+basicConstraints            = critical,CA:false
+keyUsage                    = critical, digitalSignature
+
+[ v3_code_signing_dev_ca ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
-extendedKeyUsage            = critical,development-device-only
+certificatePolicies         = critical,development-device-only
+
+[ v3_code_signing_dev ]
+subjectKeyIdentifier        = hash
+authorityKeyIdentifier      = keyid:always,issuer
+basicConstraints            = critical,CA:false
+keyUsage                    = critical, digitalSignature
+certificatePolicies         = critical,development-device-only
 
 [ v3_identity ]
 subjectKeyIdentifier        = hash
@@ -196,6 +206,16 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
 
     let spec = config::KeySpec::from_str(&json)?;
     debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
+
+    // sanity check: no signing keys at CA init
+    // this makes me think we need different types for this:
+    // one for the CA keys, one for the children we sign
+    match spec.purpose {
+        Purpose::ProductionCodeSigningCA
+        | Purpose::DevelopmentCodeSigningCA
+        | Purpose::Identity => (),
+        _ => return Err(HsmError::BadPurpose.into()),
+    }
 
     let pwd = std::env::current_dir()?;
     debug!("got current directory: {:?}", pwd);
@@ -255,8 +275,8 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     //  generate cert for CA root
     //  select v3 extensions from ... key spec?
     let mut cmd = Command::new("openssl");
-
-    cmd.arg("ca")
+    let output = cmd
+        .arg("ca")
         .arg("-batch")
         .arg("-selfsign")
         .arg("-config")
@@ -267,27 +287,13 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg("engine")
         .arg("-keyfile")
         .arg(format!("0:{:#04}", spec.id))
+        .arg("-extensions")
+        .arg(spec.purpose.to_string())
         .arg("-in")
         .arg(&csr)
         .arg("-out")
-        .arg("ca.cert.pem");
-
-    // This is a bit ugly. It's where the name of config sections from
-    // openssl.cnf meet up with structures from the config module.
-    cmd.arg("-extensions");
-    match spec.purpose {
-        Purpose::ProductionCodeSigning => {
-            cmd.arg("v3_code_signing_prod");
-        }
-        Purpose::DevelopmentCodeSigning => {
-            cmd.arg("v3_code_signing_dev");
-        }
-        Purpose::Identity => {
-            cmd.arg("v3_identity");
-        }
-    }
-
-    let output = cmd.output()?;
+        .arg("ca.cert.pem")
+        .output()?;
 
     info!("executing command: \"{:#?}\"", cmd);
 
@@ -329,6 +335,16 @@ pub fn ca_sign(
     let spec = config::KeySpec::from_str(&json)?;
     debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
 
+    // sanity check: no signing keys at CA init
+    // this makes me think we need different types for this:
+    // one for the CA keys, one for the children we sign
+    match spec.purpose {
+        Purpose::ProductionCodeSigning
+        | Purpose::DevelopmentCodeSigning
+        | Purpose::Identity => (),
+        _ => return Err(HsmError::BadPurpose.into()),
+    }
+
     // get canonical path to CSR before chdir into CA dir
     let csr = fs::canonicalize(csr)?;
     debug!("canonical CSR: {}", csr.display());
@@ -366,8 +382,7 @@ pub fn ca_sign(
 
     // execute CA command
     let mut cmd = Command::new("openssl");
-    let output = cmd
-        .arg("ca")
+    cmd.arg("ca")
         .arg("-batch")
         .arg("-config")
         .arg("openssl.cnf")
@@ -377,13 +392,15 @@ pub fn ca_sign(
         .arg("engine")
         .arg("-keyfile")
         .arg(format!("0:{:#04}", spec.id))
+        .arg("-extensions")
+        .arg(spec.purpose.to_string())
         .arg("-in")
         .arg(&csr)
         .arg("-out")
-        .arg(&cert)
-        .output()?;
+        .arg(&cert);
 
     info!("executing command: \"{:#?}\"", cmd);
+    let output = cmd.output()?;
 
     if !output.status.success() {
         warn!("command failed with status: {}", output.status);
