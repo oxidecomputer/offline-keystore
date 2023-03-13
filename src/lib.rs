@@ -200,6 +200,18 @@ development-device-only = 1.3.6.1.4.1.57551.1
     };
 }
 
+/// Get password for pkcs11 operations to keep the user from having to enter
+/// the password multiple times (once for signing the CSR, one for signing
+/// the cert). We also prefix the password with '0002' so the YubiHSM
+/// PKCS#11 module knows which key to use
+fn passwd_to_env(env_str: &str) -> Result<()> {
+    let mut password = "0002".to_string();
+    password.push_str(&rpassword::prompt_password("Enter YubiHSM Password: ")?);
+    std::env::set_var(env_str, password);
+
+    Ok(())
+}
+
 pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     let json = fs::read_to_string(key_spec)?;
     debug!("spec as json: {}", json);
@@ -216,6 +228,11 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         | Purpose::Identity => (),
         _ => return Err(HsmError::BadPurpose.into()),
     }
+
+    passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
+    // check that password works before using it
+    // doing this after we've already created a buch of directories will
+    // leave us in an inconsistent state
 
     let pwd = std::env::current_dir()?;
     debug!("got current directory: {:?}", pwd);
@@ -259,6 +276,8 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg("engine")
         .arg("-key")
         .arg(format!("0:{:#04}", spec.id))
+        .arg("-passin")
+        .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-out")
         .arg(&csr)
         .output()?;
@@ -289,6 +308,8 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg(format!("0:{:#04}", spec.id))
         .arg("-extensions")
         .arg(spec.purpose.to_string())
+        .arg("-passin")
+        .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-in")
         .arg(&csr)
         .arg("-out")
@@ -345,6 +366,8 @@ pub fn ca_sign(
         _ => return Err(HsmError::BadPurpose.into()),
     }
 
+    passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
+
     // get canonical path to CSR before chdir into CA dir
     let csr = fs::canonicalize(csr)?;
     debug!("canonical CSR: {}", csr.display());
@@ -394,6 +417,8 @@ pub fn ca_sign(
         .arg(format!("0:{:#04}", spec.id))
         .arg("-extensions")
         .arg(spec.purpose.to_string())
+        .arg("-passin")
+        .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-in")
         .arg(&csr)
         .arg("-out")
