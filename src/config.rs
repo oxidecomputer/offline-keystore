@@ -91,9 +91,26 @@ pub enum Hash {
 /// All certs issued by the OKS are assumed to be intermediate CAs.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum Purpose {
+    ProductionCodeSigningCA,
+    DevelopmentCodeSigningCA,
     ProductionCodeSigning,
     DevelopmentCodeSigning,
     Identity,
+}
+
+/// NOTE: These strings correspond to config sections for v3 extensions in the
+/// openssl.cnf.
+impl ToString for Purpose {
+    fn to_string(&self) -> String {
+        let str = match self {
+            Purpose::ProductionCodeSigningCA => "v3_code_signing_prod_ca",
+            Purpose::DevelopmentCodeSigningCA => "v3_code_signing_dev_ca",
+            Purpose::ProductionCodeSigning => "v3_code_signing_prod",
+            Purpose::DevelopmentCodeSigning => "v3_code_signing_dev",
+            Purpose::Identity => "v3_identity",
+        };
+        String::from(str)
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
