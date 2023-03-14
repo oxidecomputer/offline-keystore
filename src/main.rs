@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use env_logger::Builder;
 use log::LevelFilter;
 use std::path::PathBuf;
-use yubihsm::{object::Id, Client, Connector, Credentials, UsbConfig};
+use yubihsm::{Client, Connector, Credentials, UsbConfig};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -17,14 +17,8 @@ struct Args {
     #[clap(long, env)]
     verbose: bool,
 
-    /// Directory where HSM config description and CA state goes
-    /// TODO: coordinate this with OS?
-    #[clap(long, env, default_value = "./oks-state")]
-    state: PathBuf,
-
     /// Directory where public data goes
-    /// TODO: coordinate this with OS?
-    #[clap(long, env, default_value = "./oks-publish")]
+    #[clap(long, env, default_value = "oks-publish")]
     public: PathBuf,
 
     /// subcommands
@@ -35,6 +29,14 @@ struct Args {
 #[derive(Subcommand, Debug, PartialEq)]
 enum Command {
     Ca {
+        /// Spec file describing the CA signing key
+        #[clap(long, env, default_value = "data/key-request-ecp384.json")]
+        key_spec: PathBuf,
+
+        /// Directory where HSM config description and CA state goes
+        #[clap(long, env, default_value = "oks-state")]
+        state: PathBuf,
+
         #[command(subcommand)]
         command: CaCommand,
     },
@@ -47,21 +49,11 @@ enum Command {
 #[derive(Subcommand, Debug, PartialEq)]
 enum CaCommand {
     /// Initialize an OpenSSL CA for the given key.
-    /// NOTE: This key must exist in the HSM.
-    Initialize {
-        #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
-        key_spec: PathBuf,
+    Initialize,
 
-        /// Directory where OKM state and CA directories are stored.
-        #[clap(long, env, default_value = "oks-state")]
-        state: PathBuf,
-    },
     /// Use the CA associated with the provided key spec to sign the
     /// provided CSR.
     Sign {
-        #[clap(long, env, default_value = "data/key-request-ecp384.json")]
-        key_spec: PathBuf,
-
         #[clap(long, env, default_value = "data/p384-sha384.csr.pem")]
         csr: PathBuf,
     },
@@ -73,9 +65,6 @@ enum HsmCommand {
     Generate {
         #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
         key_spec: PathBuf,
-
-        #[clap(long, env, default_value = "1")]
-        wrap_id: Id,
     },
     /// Initialize the YubiHSM for use in the OKS.
     Initialize,
@@ -99,12 +88,16 @@ fn main() -> Result<()> {
     builder.filter(None, level).init();
 
     match args.command {
-        Command::Ca { command } => match command {
-            CaCommand::Initialize { key_spec, state } => {
+        Command::Ca {
+            command,
+            key_spec,
+            state,
+        } => match command {
+            CaCommand::Initialize => {
                 oks_util::ca_init(&key_spec, &state, &args.public)
             }
-            CaCommand::Sign { key_spec, csr } => {
-                oks_util::ca_sign(&key_spec, &csr, &args.state, &args.public)
+            CaCommand::Sign { csr } => {
+                oks_util::ca_sign(&key_spec, &csr, &state, &args.public)
             }
         },
         Command::Hsm { command } => {
@@ -139,15 +132,8 @@ fn main() -> Result<()> {
                 HsmCommand::Initialize => {
                     oks_util::initialize(&client, &args.public)
                 }
-                HsmCommand::Generate { key_spec, wrap_id } => {
-                    // For the keys we create we need to copy the key spec
-                    // file over to the ca-state directory.
-                    oks_util::generate(
-                        &client,
-                        &key_spec,
-                        wrap_id,
-                        &args.public,
-                    )
+                HsmCommand::Generate { key_spec } => {
+                    oks_util::generate(&client, &key_spec, &args.public)
                 }
                 HsmCommand::Restore => oks_util::restore(&client),
             }
