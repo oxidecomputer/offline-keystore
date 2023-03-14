@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Builder;
 use log::LevelFilter;
+use log::{debug, error};
 use std::path::PathBuf;
 use yubihsm::{Client, Connector, Credentials, UsbConfig};
 
@@ -17,8 +18,8 @@ struct Args {
     #[clap(long, env)]
     verbose: bool,
 
-    /// Directory where public data goes
-    #[clap(long, env, default_value = "oks-publish")]
+    /// Directory where we put backups and certs
+    #[clap(long, env, default_value = "oks-public")]
     public: PathBuf,
 
     /// subcommands
@@ -63,8 +64,12 @@ enum CaCommand {
 enum HsmCommand {
     /// Generate keys in YubiHSM from specification.
     Generate {
-        #[clap(long, env, default_value = "data/key-request-rsa4k.json")]
-        key_spec: PathBuf,
+        // use an ArgGroup?: https://github.com/clap-rs/clap/discussions/3899
+        #[clap(long, env)]
+        key_spec: Option<PathBuf>,
+
+        #[clap(long, env, default_value = "oks-import")]
+        key_spec_dir: Option<PathBuf>,
     },
     /// Initialize the YubiHSM for use in the OKS.
     Initialize {
@@ -137,8 +142,36 @@ fn main() -> Result<()> {
                 HsmCommand::Initialize { print_dev } => {
                     oks_util::hsm_initialize(&client, &args.public, &print_dev)
                 }
-                HsmCommand::Generate { key_spec } => {
-                    oks_util::hsm_generate_key(&client, &key_spec, &args.public)
+                HsmCommand::Generate {
+                    key_spec,
+                    key_spec_dir,
+                } => {
+                    debug!("key_spec: {:?}", key_spec);
+                    debug!("key_spec_dir: {:?}", key_spec_dir);
+                    if (key_spec.is_none() && key_spec_dir.is_none())
+                        || (key_spec.is_some() && key_spec_dir.is_some())
+                    {
+                        error!(
+                            "key-spec and key-spec-dir args are mutually \
+                            exclusive: provide one or the other, not both"
+                        );
+                    }
+                    if let Some(key_spec) = key_spec {
+                        oks_util::hsm_generate_key(
+                            &client,
+                            &key_spec,
+                            &args.public,
+                        )
+                    } else if let Some(key_spec_dir) = key_spec_dir {
+                        oks_util::hsm_generate_key_batch(
+                            &client,
+                            &key_spec_dir,
+                            &args.public,
+                        )
+                    } else {
+                        // unreachable
+                        Ok(())
+                    }
                 }
                 HsmCommand::Restore => oks_util::restore(&client),
             }

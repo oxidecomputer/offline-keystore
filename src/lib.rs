@@ -12,7 +12,7 @@ use std::{
     fs::{self, Permissions},
     io,
     os::unix::fs::PermissionsExt,
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
     str::FromStr,
     thread,
@@ -64,6 +64,37 @@ pub enum HsmError {
 const PASSWD_PROMPT: &str = "Enter new HSM password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
+const KEYSPEC_EXT: &str = ".keyspec.json";
+
+pub fn hsm_generate_key_batch(
+    client: &Client,
+    spec_dir: &Path,
+    out_dir: &Path,
+) -> Result<()> {
+    info!("generating keys in batch mode from: {:?}", spec_dir);
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for element in fs::read_dir(spec_dir)? {
+        match element {
+            Ok(e) => {
+                let path = e.path();
+                if path.to_string_lossy().ends_with(KEYSPEC_EXT) {
+                    paths.push(path);
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+
+    // no need for paths to be mutable past this point
+    let paths = paths;
+    for path in paths {
+        info!("generating key for spec: {:?}", path);
+        hsm_generate_key(client, &path, out_dir)?;
+    }
+
+    Ok(())
+}
+
 /// Generate an asymmetric key from the provided specification.
 pub fn hsm_generate_key(
     client: &Client,
@@ -102,7 +133,7 @@ pub fn hsm_generate_key(
 
     // get yubihsm attestation
     info!("Getting attestation for key with label: {}", spec.label);
-    let attest_cert = client.sign_attestation_certificate(2, None)?;
+    let attest_cert = client.sign_attestation_certificate(spec.id, None)?;
     let attest_path = out_dir.join(format!("{}.attest.cert.pem", spec.label));
     fs::write(attest_path, attest_cert)?;
 

@@ -1,0 +1,10 @@
+{
+    "common_name": "PSC RoT Stage0 Code Signing Development Offline CA B",
+    "id": 12,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha384",
+    "label":"psc-rot-stage0-code-signing-dev-b",
+    "purpose":"DevelopmentCodeSigningCA"
+}
