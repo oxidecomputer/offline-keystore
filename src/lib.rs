@@ -65,7 +65,7 @@ const PASSWD_PROMPT: &str = "Enter new HSM password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
 /// Generate an asymmetric key from the provided specification.
-pub fn generate(
+pub fn hsm_generate_key(
     client: &Client,
     key_spec: &Path,
     out_dir: &Path,
@@ -215,7 +215,11 @@ fn passwd_to_env(env_str: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
+pub fn ca_initialize(
+    key_spec: &Path,
+    ca_state: &Path,
+    out: &Path,
+) -> Result<()> {
     let json = fs::read_to_string(key_spec)?;
     debug!("spec as json: {}", json);
 
@@ -539,7 +543,7 @@ pub fn restore(client: &Client) -> Result<()> {
 /// This new auth key is backed up / exported under wrap using the new wrap
 /// key. This backup is written to the provided directory path. Finally this
 /// function removes the default authentication credentials.
-pub fn initialize(
+pub fn hsm_initialize(
     client: &Client,
     out_dir: &Path,
     print_dev: &Path,
