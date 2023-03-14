@@ -97,7 +97,7 @@ fn main() -> Result<()> {
             state,
         } => match command {
             CaCommand::Initialize => {
-                oks_util::ca_init(&key_spec, &state, &args.public)
+                oks_util::ca_initialize(&key_spec, &state, &args.public)
             }
             CaCommand::Sign { csr } => {
                 oks_util::ca_sign(&key_spec, &csr, &state, &args.public)
@@ -135,10 +135,10 @@ fn main() -> Result<()> {
 
             match command {
                 HsmCommand::Initialize { print_dev } => {
-                    oks_util::initialize(&client, &args.public, &print_dev)
+                    oks_util::hsm_initialize(&client, &args.public, &print_dev)
                 }
                 HsmCommand::Generate { key_spec } => {
-                    oks_util::generate(&client, &key_spec, &args.public)
+                    oks_util::hsm_generate_key(&client, &key_spec, &args.public)
                 }
                 HsmCommand::Restore => oks_util::restore(&client),
             }
