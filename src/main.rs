@@ -67,7 +67,10 @@ enum HsmCommand {
         key_spec: PathBuf,
     },
     /// Initialize the YubiHSM for use in the OKS.
-    Initialize,
+    Initialize {
+        #[clap(long, env, default_value = "/dev/usb/lp0")]
+        print_dev: PathBuf,
+    },
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
 }
@@ -108,12 +111,14 @@ fn main() -> Result<()> {
             //   during initialization
             // - the user will be prompted for a password
             let passwd = match command {
-                HsmCommand::Initialize => "password".to_string(),
+                HsmCommand::Initialize { print_dev: _ } => {
+                    "password".to_string()
+                }
                 _ => rpassword::prompt_password("Enter YubiHSM Password: ")
                     .unwrap(),
             };
             let auth_id = match command {
-                HsmCommand::Initialize => 1, // default auth key id for YubiHSM
+                HsmCommand::Initialize { print_dev: _ } => 1, // default auth key id for YubiHSM
                 _ => 2, // auth key id we create in initialize
             };
 
@@ -129,8 +134,8 @@ fn main() -> Result<()> {
             let client = Client::open(connector, credentials, true)?;
 
             match command {
-                HsmCommand::Initialize => {
-                    oks_util::initialize(&client, &args.public)
+                HsmCommand::Initialize { print_dev } => {
+                    oks_util::initialize(&client, &args.public, &print_dev)
                 }
                 HsmCommand::Generate { key_spec } => {
                     oks_util::generate(&client, &key_spec, &args.public)
