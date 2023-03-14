@@ -546,7 +546,11 @@ pub fn restore(client: &Client) -> Result<()> {
 /// This new auth key is backed up / exported under wrap using the new wrap
 /// key. This backup is written to the provided directory path. Finally this
 /// function removes the default authentication credentials.
-pub fn initialize(client: &Client, out_dir: &Path) -> Result<()> {
+pub fn initialize(
+    client: &Client,
+    out_dir: &Path,
+    print_dev: &Path,
+) -> Result<()> {
     // get 32 bytes from YubiHSM PRNG
     // TODO: zeroize
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
@@ -588,32 +592,40 @@ pub fn initialize(client: &Client, out_dir: &Path) -> Result<()> {
 
     println!(
         "WARNING: The wrap / backup key has been created and stored in the\n\
-        YubiHSM. It will now be split into {} key shares. The operator must\n\
-        record these shares as they're displayed. Failure to do so will\n\
-        result in the inability to reconstruct this key and restore\n\
-        backups.\n\n\
+        YubiHSM. It will now be split into {} key shares and each share\n\
+        will be individually written to {}. Before each keyshare is\n\
+        printed, the operator will be prompted to ensure the appropriate key\n\
+        custodian is present in front of the printer.\n\n\
         Press enter to begin the key share recording process ...",
-        SHARES
+        SHARES,
+        print_dev.display(),
     );
 
     wait_for_line();
-    clear_screen();
+
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let mut print_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(print_dev)?;
 
     for (i, share) in shares.iter().enumerate() {
         let share_num = i + 1;
         println!(
-            "When key custodian {share} is steated, press enter to display \
-            share {share}",
-            share = share_num
+            "When key custodian {num} is ready, press enter to print share \
+            {num}",
+            num = share_num,
         );
         wait_for_line();
 
-        // Can we generate a QR code, photograph it & then recover the key by
-        // reading them back through the camera?
-        println!("\n{}\n", share);
-        println!("When you are done recording this key share, press enter");
+        print_file.write_all(format!("{}\n", share).as_bytes())?;
+        println!(
+            "When key custodian {} has collected their key share, press enter",
+            share_num,
+        );
         wait_for_line();
-        clear_screen();
     }
 
     Ok(())
@@ -688,13 +700,6 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
     password.zeroize();
 
     Ok(())
-}
-
-/// This "clears" the screen using terminal control characters. If your
-/// terminal has a scroll bar that can be used to scroll back to previous
-/// screens that had been "cleared".
-fn clear_screen() {
-    print!("{esc}[2J{esc}[1;1H", esc = 27 as char);
 }
 
 /// This function is used when displaying key shares as a way for the user to
