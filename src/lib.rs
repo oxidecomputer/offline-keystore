@@ -18,7 +18,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tempdir::TempDir;
+use tempfile::TempDir;
 use thiserror::Error;
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
@@ -265,7 +265,7 @@ pub fn ca_init(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     // We're chdir-ing around and that makes it a PITA to keep track of file
     // paths. Stashing everything in a tempdir make it easier to copy it all
     // out when we're done.
-    let tmp_dir = TempDir::new("ca-init")?;
+    let tmp_dir = TempDir::new()?;
     let csr = tmp_dir.path().join(format!("{}.csr.pem", label));
 
     let mut cmd = Command::new("openssl");
