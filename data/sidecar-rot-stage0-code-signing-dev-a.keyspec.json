@@ -1,0 +1,10 @@
+{
+    "common_name": "Sidecar RoT Stage0 Code Signing Development Offline CA A",
+    "id": 6,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha384",
+    "label":"sidecar-rot-stage0-code-signing-dev-a",
+    "purpose":"DevelopmentCodeSigningCA"
+}
