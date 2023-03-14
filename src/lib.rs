@@ -43,6 +43,8 @@ const SHARES: u8 = 5;
 const THRESHOLD: u8 = 3;
 sa::const_assert!(THRESHOLD <= SHARES);
 
+const WRAP_ID: Id = 1;
+
 #[derive(Error, Debug)]
 pub enum HsmError {
     #[error("failed conversion from YubiHSM Domain")]
@@ -66,7 +68,6 @@ const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 pub fn generate(
     client: &Client,
     key_spec: &Path,
-    wrap_id: Id,
     out_dir: &Path,
 ) -> Result<()> {
     let json = fs::read_to_string(key_spec)?;
@@ -86,9 +87,9 @@ pub fn generate(
 
     debug!(
         "exporting new asymmetric key under wrap-key w/ id: {}",
-        wrap_id
+        WRAP_ID
     );
-    let msg = client.export_wrapped(wrap_id, Type::AsymmetricKey, id)?;
+    let msg = client.export_wrapped(WRAP_ID, Type::AsymmetricKey, id)?;
     let msg_json = serde_json::to_string(&msg)?;
 
     debug!("exported asymmetric key: {:#?}", msg_json);
@@ -573,10 +574,13 @@ pub fn initialize(client: &Client, out_dir: &Path) -> Result<()> {
                 DOMAIN, ID
             )
         })?;
-    info!("wrap id: {}", id);
+    debug!("wrap id: {}", id);
+    // Future commands assume that our wrap key has id 1. If we got a wrap
+    // key with any other id the HSM isn't in the state we think it is.
+    assert_eq!(id, WRAP_ID);
 
     // do the stuff from replace-auth.sh
-    personalize(client, id, out_dir)?;
+    personalize(client, WRAP_ID, out_dir)?;
 
     let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
         .with_context(|| {
