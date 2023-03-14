@@ -128,9 +128,6 @@ engine_id                   = pkcs11
 MODULE_PATH                 = /usr/lib/pkcs11/yubihsm_pkcs11.so
 INIT_ARGS                   = connector=http://127.0.0.1:12345 debug
 init                        = 0
-# PIN format: "<auth key id><auth key password>"
-# password must be 12 characters, 4 for the key id, 8 for the password
-#PIN                         = "0001password"
 
 [ ca ]
 default_ca                  = CA_default
@@ -167,7 +164,6 @@ emailAddress                = optional
 [ req ]
 default_md                  = {hash:?}
 string_mask                 = utf8only
-default_enddate             = 99991231235959Z
 
 [ v3_code_signing_prod_ca ]
 subjectKeyIdentifier        = hash
