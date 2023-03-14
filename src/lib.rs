@@ -488,13 +488,6 @@ fn bootstrap_ca(key_spec: &KeySpec) -> Result<()> {
     Ok(())
 }
 
-// consts for our authentication credential
-const AUTH_DOMAINS: Domain = Domain::all();
-const AUTH_CAPS: Capability = Capability::all();
-const AUTH_DELEGATED: Capability = Capability::all();
-const AUTH_ID: Id = 2;
-const AUTH_LABEL: &str = "admin";
-
 /// This function prompts the user to enter M of the N backup shares. It
 /// uses these shares to reconstitute the wrap key. This wrap key can then
 /// be used to restore previously backed up / export wrapped keys.
@@ -630,6 +623,13 @@ pub fn initialize(
 
     Ok(())
 }
+
+// consts for our authentication credential
+const AUTH_DOMAINS: Domain = Domain::all();
+const AUTH_CAPS: Capability = Capability::all();
+const AUTH_DELEGATED: Capability = Capability::all();
+const AUTH_ID: Id = 2;
+const AUTH_LABEL: &str = "admin";
 
 // create a new auth key, remove the default auth key, then export the new
 // auth key under the wrap key with the provided id
