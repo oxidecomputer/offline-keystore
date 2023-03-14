@@ -99,6 +99,12 @@ pub fn generate(
     debug!("writing to: {}", out_pathbuf.display());
     fs::write(out_pathbuf, msg_json)?;
 
+    // get yubihsm attestation
+    info!("Getting attestation for key with label: {}", spec.label);
+    let attest_cert = client.sign_attestation_certificate(2, None)?;
+    let attest_path = out_dir.join(format!("{}.attest.cert.pem", spec.label));
+    fs::write(attest_path, attest_cert)?;
+
     Ok(())
 }
 
@@ -665,11 +671,19 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
     debug!("msg_json: {:#?}", msg_json);
 
     // we need to append a name for our file
-    let mut out_dir = out_dir.to_path_buf();
-    out_dir.push(format!("{}.wrap.json", AUTH_LABEL));
+    let mut auth_wrap_path = out_dir.to_path_buf();
+    auth_wrap_path.push(format!("{}.wrap.json", AUTH_LABEL));
+    debug!("writing to: {}", auth_wrap_path.display());
+    fs::write(&auth_wrap_path, msg_json)?;
 
-    debug!("writing to: {}", out_dir.display());
-    fs::write(out_dir, msg_json)?;
+    // dump cert for default attesation key in hsm
+    debug!("extracting attestation certificate");
+    let attest_cert = client.get_opaque(0)?;
+    let mut attest_path = out_dir.to_path_buf();
+    attest_path.push("hsm.attest.cert.pem");
+
+    debug!("writing attestation cert to: {}", attest_path.display());
+    fs::write(&attest_path, attest_cert)?;
 
     password.zeroize();
 
