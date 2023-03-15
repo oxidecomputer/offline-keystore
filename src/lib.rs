@@ -51,6 +51,8 @@ const CA_KEY_SPEC: &str = "key.spec";
 
 #[derive(Error, Debug)]
 pub enum HsmError {
+    #[error("path not a directory")]
+    BadSpecDirectory,
     #[error("failed conversion from YubiHSM Domain")]
     BadDomain,
     #[error("failed conversion from YubiHSM Label")]
@@ -69,6 +71,7 @@ const PASSWD_PROMPT: &str = "Enter new HSM password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
 const KEYSPEC_EXT: &str = ".keyspec.json";
+const CSRSPEC_EXT: &str = ".csrspec.json";
 
 pub fn hsm_generate_key_batch(
     client: &Client,
@@ -385,6 +388,30 @@ pub fn ca_initialize(
     Ok(())
 }
 
+fn files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
+    if !dir.is_dir() {
+        error!("not a directory: {}", dir.display());
+        return Err(HsmError::BadSpecDirectory.into());
+    }
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for element in fs::read_dir(dir)? {
+        match element {
+            Ok(e) => {
+                let path = e.path();
+                if path.to_string_lossy().ends_with(ext) {
+                    paths.push(path);
+                }
+            }
+            Err(e) => {
+                warn!("skipping directory entry due to error: {}", e);
+                continue;
+            }
+        }
+    }
+
+    Ok(paths)
+}
+
 pub fn ca_sign(
     csr_spec_path: &Path,
     state: &Path,
@@ -393,9 +420,48 @@ pub fn ca_sign(
     let csr_spec_path = fs::canonicalize(csr_spec_path)?;
     debug!("canonical CsrSpec path: {}", csr_spec_path.display());
 
+    let paths = if csr_spec_path.is_file() {
+        vec![csr_spec_path]
+    } else {
+        files_with_ext(&csr_spec_path, CSRSPEC_EXT)?
+    };
+
+    // start connector
+    debug!("starting connector");
+    let mut connector = Command::new("yubihsm-connector").spawn()?;
+
+    debug!("connector started");
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
+
+    let tmp_dir = TempDir::new()?;
+    for path in paths {
+        // process csr spec
+        info!("Signing CSR from spec: {:?}", path);
+        if let Err(e) = ca_sign_csrspec(&path, &tmp_dir, state, publish) {
+            // Ignore possible error from killing connector because we already
+            // have an error to report and it'll be more interesting.
+            let _ = connector.kill();
+            return Err(e);
+        }
+    }
+
+    // kill connector
+    connector.kill()?;
+
+    Ok(())
+}
+
+pub fn ca_sign_csrspec(
+    csr_spec_path: &Path,
+    tmp_dir: &TempDir,
+    state: &Path,
+    publish: &Path,
+) -> Result<()> {
     // deserialize the csrspec
     debug!("Getting CSR spec from: {}", csr_spec_path.display());
-    let json = fs::read_to_string(&csr_spec_path)?;
+    let json = fs::read_to_string(csr_spec_path)?;
     debug!("spec as json: {}", json);
 
     let csr_spec = config::CsrSpec::from_str(&json)?;
@@ -423,8 +489,6 @@ pub fn ca_sign(
         _ => return Err(HsmError::BadPurpose.into()),
     };
 
-    passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
-
     let publish = fs::canonicalize(publish)?;
     debug!("canonical publish: {}", publish.display());
 
@@ -436,15 +500,8 @@ pub fn ca_sign(
     std::env::set_current_dir(&ca_dir)?;
     debug!("setting current directory: {}", ca_dir.display());
 
-    // start connector
-    debug!("starting connector");
-    let mut connector = Command::new("yubihsm-connector").spawn()?;
-
-    debug!("connector started");
-    std::thread::sleep(std::time::Duration::from_millis(1000));
-
-    // TODO: No CSR file so we can't clip the suffix / extension off its name.
-    // cert file name takes prefix from CSR file name, appends ".cert.pem"
+    // Get prefix from CsrSpec file. We us this to generate file names for the
+    // temp CSR file and the output cert file.
     let csr_filename = csr_spec_path
         .file_name()
         .unwrap()
@@ -458,7 +515,6 @@ pub fn ca_sign(
 
     // create a tempdir & write CSR there for openssl: AFAIK the `ca` command
     // won't take the CSR over stdin
-    let tmp_dir = TempDir::new()?;
     let tmp_csr = tmp_dir.path().join(format!("{}.csr.pem", csr_prefix));
     debug!("writing CSR to: {}", tmp_csr.display());
     fs::write(&tmp_csr, &csr_spec.csr)?;
@@ -493,12 +549,8 @@ pub fn ca_sign(
     if !output.status.success() {
         warn!("command failed with status: {}", output.status);
         warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        connector.kill()?;
         return Err(HsmError::CertGenFail.into());
     }
-
-    // kill connector
-    connector.kill()?;
 
     std::env::set_current_dir(pwd)?;
 
