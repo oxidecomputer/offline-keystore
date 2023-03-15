@@ -1,0 +1,14 @@
+{
+    "label":"gimlet-rot-stage0-code-signing-dev-a",
+    "csr":[
+        "-----BEGIN CERTIFICATE REQUEST-----",
+        "MIIBPjCBxQIBADBGMUQwQgYDVQQDDDtHaW1sZXQgUm9UIFN0YWdlMCBDb2RlIFNp",
+        "Z25pbmcgRW5naW5lZXJpbmcgT25saW5lIFNpZ25lciBBMjB2MBAGByqGSM49AgEG",
+        "BSuBBAAiA2IABCMDXF79DJ5pSxqST10pi3R+4MTs9EhSvzCTE71grrck6PmxqJ4D",
+        "fz3Nx2m+PJicWg7OEzCpNc2sgLoehlYYcp/ajI1RkQ0bM9e9dUsGKrFQHsK8RyR2",
+        "nN/cNvJjHhqWuKAAMAoGCCqGSM49BAMDA2gAMGUCMFn2X7fM6rnban06ymAtFgtC",
+        "hugJqfRiQDLfNRy4UT1+EBgjgiGq/5DivUAPIoIGMwIxAKS9iXkYyD7j/4ga76lV",
+        "+PNHXWMl47xZU9IOukBqw7ujsZxGzMWx3DGXouJtlKGObw==",
+        "-----END CERTIFICATE REQUEST-----"
+    ]
+}
