@@ -30,7 +30,7 @@ pub enum ConfigError {
 // These structs duplicate data from the yubihsm crate
 // The Algorithm and Domain types serialize but won't deserialize
 #[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub enum OksAlgorithm {
+enum OksAlgorithm {
     Rsa4096,
     Ecp384,
 }
@@ -45,7 +45,7 @@ impl From<OksAlgorithm> for asymmetric::Algorithm {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub enum OksDomain {
+enum OksDomain {
     DOM1,
 }
 
@@ -58,7 +58,7 @@ impl From<OksDomain> for Domain {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub struct OksLabel(String);
+struct OksLabel(String);
 
 impl TryInto<Label> for OksLabel {
     type Error = ConfigError;
@@ -72,7 +72,7 @@ impl TryInto<Label> for OksLabel {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
-pub enum OksCapability {
+enum OksCapability {
     All,
 }
 

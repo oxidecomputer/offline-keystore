@@ -102,10 +102,10 @@ fn main() -> Result<()> {
             state,
         } => match command {
             CaCommand::Initialize => {
-                oks_util::ca_initialize(&key_spec, &state, &args.public)
+                oks::ca::initialize(&key_spec, &state, &args.public)
             }
             CaCommand::Sign { csr_spec } => {
-                oks_util::ca_sign(&csr_spec, &state, &args.public)
+                oks::ca::sign(&csr_spec, &state, &args.public)
             }
         },
         Command::Hsm { command } => {
@@ -140,7 +140,7 @@ fn main() -> Result<()> {
 
             match command {
                 HsmCommand::Initialize { print_dev } => {
-                    oks_util::hsm_initialize(&client, &args.public, &print_dev)
+                    oks::hsm::initialize(&client, &args.public, &print_dev)
                 }
                 HsmCommand::Generate {
                     key_spec,
@@ -157,13 +157,9 @@ fn main() -> Result<()> {
                         );
                     }
                     if let Some(key_spec) = key_spec {
-                        oks_util::hsm_generate_key(
-                            &client,
-                            &key_spec,
-                            &args.public,
-                        )
+                        oks::hsm::generate_key(&client, &key_spec, &args.public)
                     } else if let Some(key_spec_dir) = key_spec_dir {
-                        oks_util::hsm_generate_key_batch(
+                        oks::hsm::generate_key_batch(
                             &client,
                             &key_spec_dir,
                             &args.public,
@@ -173,7 +169,7 @@ fn main() -> Result<()> {
                         Ok(())
                     }
                 }
-                HsmCommand::Restore => oks_util::restore(&client),
+                HsmCommand::Restore => oks::hsm::restore(&client),
             }
         }
     }

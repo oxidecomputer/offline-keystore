@@ -1,7 +1,9 @@
 [package]
-name = "oks-util"
+name = "oks"
 version = "0.1.0"
-description = "A utility for managing the offline keystore."
+description = """
+A utility and library for managing and interacting with the offline keystore.
+"""
 edition = "2021"
 
 [dependencies]
