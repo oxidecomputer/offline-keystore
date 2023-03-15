@@ -3,8 +3,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::Result;
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use thiserror::Error;
 use yubihsm::{
     asymmetric,
@@ -208,6 +213,26 @@ impl TryFrom<OksCsrSpec> for CsrSpec {
             csr: spec.csr.join("\n"),
         })
     }
+}
+
+pub fn files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for element in fs::read_dir(dir)? {
+        match element {
+            Ok(e) => {
+                let path = e.path();
+                if path.to_string_lossy().ends_with(ext) {
+                    paths.push(path);
+                }
+            }
+            Err(e) => {
+                warn!("skipping directory entry due to error: {}", e);
+                continue;
+            }
+        }
+    }
+
+    Ok(paths)
 }
 
 #[cfg(test)]
