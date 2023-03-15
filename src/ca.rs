@@ -19,7 +19,7 @@ use std::{
 use tempfile::TempDir;
 use thiserror::Error;
 
-use crate::config::{CsrSpec, KeySpec, Purpose};
+use crate::config::{CsrSpec, KeySpec, Purpose, KEYSPEC_EXT};
 
 /// Name of file in root of a CA directory with key spec used to generate key
 /// in HSM.
@@ -70,7 +70,7 @@ new_certs_dir               = $dir/newcerts
 certificate                 = $dir/ca.cert.pem
 serial                      = $dir/serial
 # key format:   <slot>:<key id>
-private_key                 = 0:{key:#04}
+private_key                 = 0:{key:04x}
 name_opt                    = ca_default
 cert_opt                    = ca_default
 # certs may be retired, but they won't expire
@@ -145,7 +145,56 @@ fn passwd_to_env(env_str: &str) -> Result<()> {
     Ok(())
 }
 
+/// Initialize an openssl CA directory & self signed cert for the provided
+/// KeySpec.
+/// NOTE: The YubiHSM supports 16 sessions and stale sessions are recycled
+/// after 30 seconds of inactivity. Depending on however many KeySpecs we're
+/// processing tests shows that we run out of sessions pretty quickly. This
+/// is likely caused by the pkcs11 module not cleaning up after itself. To
+/// account for this we sleep between invocations of the openssl tools to give
+/// the stale sessions time to be reclaimed by the HSM.
 pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
+    let key_spec = fs::canonicalize(key_spec)?;
+    debug!("canonical KeySpec path: {}", key_spec.display());
+
+    let paths = if key_spec.is_file() {
+        vec![key_spec]
+    } else {
+        files_with_ext(&key_spec, KEYSPEC_EXT)?
+    };
+
+    // start connector
+    debug!("starting connector");
+    let mut connector = Command::new("yubihsm-connector").spawn()?;
+
+    debug!("connector started");
+
+    passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
+
+    let tmp_dir = TempDir::new()?;
+    for path in paths {
+        info!("Initializing CA from KeySpec: {:?}", path);
+        // sleep to let sessions cycle
+        thread::sleep(Duration::from_millis(1500));
+        if let Err(e) = initialize_keyspec(&path, &tmp_dir, ca_state, out) {
+            // Ignore possible error from killing connector because we already
+            // have an error to report and it'll be more interesting.
+            let _ = connector.kill();
+            return Err(e);
+        }
+    }
+
+    connector.kill()?;
+
+    Ok(())
+}
+
+fn initialize_keyspec(
+    key_spec: &Path,
+    tmp_dir: &TempDir,
+    ca_state: &Path,
+    out: &Path,
+) -> Result<()> {
     let json = fs::read_to_string(key_spec)?;
     debug!("spec as json: {}", json);
 
@@ -161,11 +210,6 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         | Purpose::Identity => (),
         _ => return Err(CaError::BadPurpose.into()),
     }
-
-    passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
-    // check that password works before using it
-    // doing this after we've already created a buch of directories will
-    // leave us in an inconsistent state
 
     let pwd = std::env::current_dir()?;
     debug!("got current directory: {:?}", pwd);
@@ -183,17 +227,13 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
 
     bootstrap_ca(&spec)?;
 
-    debug!("starting connector");
-    let mut connector = Command::new("yubihsm-connector").spawn()?;
-
-    debug!("connector started");
-    thread::sleep(Duration::from_millis(1000));
-
     // We're chdir-ing around and that makes it a PITA to keep track of file
     // paths. Stashing everything in a tempdir make it easier to copy it all
     // out when we're done.
-    let tmp_dir = TempDir::new()?;
     let csr = tmp_dir.path().join(format!("{}.csr.pem", label));
+
+    // sleep to let sessions cycle
+    thread::sleep(Duration::from_millis(1500));
 
     let mut cmd = Command::new("openssl");
     let output = cmd
@@ -208,7 +248,7 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg("-keyform")
         .arg("engine")
         .arg("-key")
-        .arg(format!("0:{:#04}", spec.id))
+        .arg(format!("0:{:04x}", spec.id))
         .arg("-passin")
         .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-out")
@@ -220,9 +260,11 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     if !output.status.success() {
         warn!("command failed with status: {}", output.status);
         warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        connector.kill()?;
         return Err(CaError::SelfCertGenFail.into());
     }
+
+    // sleep to let sessions cycle
+    thread::sleep(Duration::from_millis(1500));
 
     //  generate cert for CA root
     //  select v3 extensions from ... key spec?
@@ -238,7 +280,7 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         .arg("-keyform")
         .arg("engine")
         .arg("-keyfile")
-        .arg(format!("0:{:#04}", spec.id))
+        .arg(format!("0:{:04x}", spec.id))
         .arg("-extensions")
         .arg(spec.purpose.to_string())
         .arg("-passin")
@@ -254,11 +296,8 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     if !output.status.success() {
         warn!("command failed with status: {}", output.status);
         warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        connector.kill()?;
         return Err(CaError::SelfCertGenFail.into());
     }
-
-    connector.kill()?;
 
     let cert = tmp_dir.path().join(format!("{}.cert.pem", label));
     fs::copy("ca.cert.pem", cert)?;
@@ -417,7 +456,7 @@ pub fn sign_csrspec(
         .arg("-keyform")
         .arg("engine")
         .arg("-keyfile")
-        .arg(format!("0:{:#04}", key_spec.id))
+        .arg(format!("0:{:04x}", key_spec.id))
         .arg("-extensions")
         .arg(purpose.to_string())
         .arg("-passin")

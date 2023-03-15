@@ -20,9 +20,8 @@ use yubihsm::{
 };
 use zeroize::Zeroize;
 
-use crate::config::KeySpec;
+use crate::config::{KeySpec, KEYSPEC_EXT};
 
-const KEYSPEC_EXT: &str = ".keyspec.json";
 const WRAP_ID: Id = 1;
 
 const ALG: wrap::Algorithm = wrap::Algorithm::Aes256Ccm;

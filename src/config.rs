@@ -12,6 +12,8 @@ use yubihsm::{
     Capability, Domain,
 };
 
+pub const KEYSPEC_EXT: &str = ".keyspec.json";
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("failed conversion from YubiHSM Label")]
