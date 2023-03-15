@@ -10,7 +10,7 @@ use std::{
     fs::{self, OpenOptions, Permissions},
     io,
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
     str::FromStr,
     thread,
@@ -19,7 +19,7 @@ use std::{
 use tempfile::TempDir;
 use thiserror::Error;
 
-use crate::config::{CsrSpec, KeySpec, Purpose, KEYSPEC_EXT};
+use crate::config::{self, CsrSpec, KeySpec, Purpose, KEYSPEC_EXT};
 
 /// Name of file in root of a CA directory with key spec used to generate key
 /// in HSM.
@@ -160,7 +160,7 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
     let paths = if key_spec.is_file() {
         vec![key_spec]
     } else {
-        files_with_ext(&key_spec, KEYSPEC_EXT)?
+        config::files_with_ext(&key_spec, KEYSPEC_EXT)?
     };
 
     // start connector
@@ -315,30 +315,6 @@ fn initialize_keyspec(
     Ok(())
 }
 
-fn files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
-    if !dir.is_dir() {
-        error!("not a directory: {}", dir.display());
-        return Err(CaError::BadSpecDirectory.into());
-    }
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for element in fs::read_dir(dir)? {
-        match element {
-            Ok(e) => {
-                let path = e.path();
-                if path.to_string_lossy().ends_with(ext) {
-                    paths.push(path);
-                }
-            }
-            Err(e) => {
-                warn!("skipping directory entry due to error: {}", e);
-                continue;
-            }
-        }
-    }
-
-    Ok(paths)
-}
-
 pub fn sign(csr_spec_path: &Path, state: &Path, publish: &Path) -> Result<()> {
     let csr_spec_path = fs::canonicalize(csr_spec_path)?;
     debug!("canonical CsrSpec path: {}", csr_spec_path.display());
@@ -346,7 +322,7 @@ pub fn sign(csr_spec_path: &Path, state: &Path, publish: &Path) -> Result<()> {
     let paths = if csr_spec_path.is_file() {
         vec![csr_spec_path]
     } else {
-        files_with_ext(&csr_spec_path, CSRSPEC_EXT)?
+        config::files_with_ext(&csr_spec_path, CSRSPEC_EXT)?
     };
 
     // start connector

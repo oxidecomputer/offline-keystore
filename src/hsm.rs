@@ -9,7 +9,7 @@ use static_assertions as sa;
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::Path,
     str::FromStr,
 };
 use thiserror::Error;
@@ -20,7 +20,7 @@ use yubihsm::{
 };
 use zeroize::Zeroize;
 
-use crate::config::{KeySpec, KEYSPEC_EXT};
+use crate::config::{self, KeySpec, KEYSPEC_EXT};
 
 const WRAP_ID: Id = 1;
 
@@ -53,37 +53,30 @@ pub enum HsmError {
     Version,
 }
 
-pub fn generate_key_batch(
+pub fn generate(
     client: &Client,
-    spec_dir: &Path,
+    key_spec: &Path,
     out_dir: &Path,
 ) -> Result<()> {
-    info!("generating keys in batch mode from: {:?}", spec_dir);
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for element in fs::read_dir(spec_dir)? {
-        match element {
-            Ok(e) => {
-                let path = e.path();
-                if path.to_string_lossy().ends_with(KEYSPEC_EXT) {
-                    paths.push(path);
-                }
-            }
-            Err(_) => continue,
-        }
-    }
+    let key_spec = fs::canonicalize(key_spec)?;
+    debug!("canonical KeySpec path: {}", key_spec.display());
 
-    // no need for paths to be mutable past this point
-    let paths = paths;
+    let paths = if key_spec.is_file() {
+        vec![key_spec]
+    } else {
+        config::files_with_ext(&key_spec, KEYSPEC_EXT)?
+    };
+
     for path in paths {
         info!("generating key for spec: {:?}", path);
-        generate_key(client, &path, out_dir)?;
+        generate_keyspec(client, &path, out_dir)?;
     }
 
     Ok(())
 }
 
 /// Generate an asymmetric key from the provided specification.
-pub fn generate_key(
+pub fn generate_keyspec(
     client: &Client,
     key_spec: &Path,
     out_dir: &Path,
