@@ -9,8 +9,8 @@ use log::{debug, error, info, warn};
 use static_assertions as sa;
 use std::{
     env,
-    fs::{self, Permissions},
-    io,
+    fs::{self, OpenOptions, Permissions},
+    io::{self, Write},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Command,
@@ -44,6 +44,10 @@ const THRESHOLD: u8 = 3;
 sa::const_assert!(THRESHOLD <= SHARES);
 
 const WRAP_ID: Id = 1;
+
+/// Name of file in root of a CA directory with key spec used to generate key
+/// in HSM.
+const CA_KEY_SPEC: &str = "key.spec";
 
 #[derive(Error, Debug)]
 pub enum HsmError {
@@ -382,33 +386,45 @@ pub fn ca_initialize(
 }
 
 pub fn ca_sign(
-    key_spec: &Path,
-    csr: &Path,
+    csr_spec_path: &Path,
     state: &Path,
     publish: &Path,
 ) -> Result<()> {
-    // deserialize spec file
+    let csr_spec_path = fs::canonicalize(csr_spec_path)?;
+    debug!("canonical CsrSpec path: {}", csr_spec_path.display());
+
+    // deserialize the csrspec
+    debug!("Getting CSR spec from: {}", csr_spec_path.display());
+    let json = fs::read_to_string(&csr_spec_path)?;
+    debug!("spec as json: {}", json);
+
+    let csr_spec = config::CsrSpec::from_str(&json)?;
+    debug!("CsrSpec: {:#?}", csr_spec);
+
+    // get the label
+    // use label to reconstruct path to CA root dir for key w/ label
+    let key_spec = state.join(csr_spec.label.to_string()).join(CA_KEY_SPEC);
+
+    debug!("Getting KeySpec from: {}", key_spec.display());
     let json = fs::read_to_string(key_spec)?;
     debug!("spec as json: {}", json);
 
-    let spec = config::KeySpec::from_str(&json)?;
-    debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
+    let key_spec = config::KeySpec::from_str(&json)?;
+    debug!("KeySpec: {:#?}", key_spec);
 
     // sanity check: no signing keys at CA init
     // this makes me think we need different types for this:
     // one for the CA keys, one for the children we sign
-    match spec.purpose {
-        Purpose::ProductionCodeSigning
-        | Purpose::DevelopmentCodeSigning
-        | Purpose::Identity => (),
+    // map purpose of CA key to key associated with CSR
+    let purpose = match key_spec.purpose {
+        Purpose::ProductionCodeSigningCA => Purpose::ProductionCodeSigning,
+        Purpose::DevelopmentCodeSigningCA => Purpose::DevelopmentCodeSigning,
+        Purpose::Identity => Purpose::Identity,
         _ => return Err(HsmError::BadPurpose.into()),
-    }
+    };
 
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
 
-    // get canonical path to CSR before chdir into CA dir
-    let csr = fs::canonicalize(csr)?;
-    debug!("canonical CSR: {}", csr.display());
     let publish = fs::canonicalize(publish)?;
     debug!("canonical publish: {}", publish.display());
 
@@ -416,7 +432,7 @@ pub fn ca_sign(
     let pwd = std::env::current_dir()?;
     debug!("got current directory: {:?}", pwd);
 
-    let ca_dir = state.join(spec.label.to_string());
+    let ca_dir = state.join(key_spec.label.to_string());
     std::env::set_current_dir(&ca_dir)?;
     debug!("setting current directory: {}", ca_dir.display());
 
@@ -427,9 +443,9 @@ pub fn ca_sign(
     debug!("connector started");
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
+    // TODO: No CSR file so we can't clip the suffix / extension off its name.
     // cert file name takes prefix from CSR file name, appends ".cert.pem"
-    debug!("canonical csr: {}", csr.display());
-    let csr_filename = csr
+    let csr_filename = csr_spec_path
         .file_name()
         .unwrap()
         .to_os_string()
@@ -439,7 +455,16 @@ pub fn ca_sign(
         Some(i) => csr_filename[..i].to_string(),
         None => csr_filename,
     };
+
+    // create a tempdir & write CSR there for openssl: AFAIK the `ca` command
+    // won't take the CSR over stdin
+    let tmp_dir = TempDir::new()?;
+    let tmp_csr = tmp_dir.path().join(format!("{}.csr.pem", csr_prefix));
+    debug!("writing CSR to: {}", tmp_csr.display());
+    fs::write(&tmp_csr, &csr_spec.csr)?;
+
     let cert = publish.join(format!("{}.cert.pem", csr_prefix));
+    debug!("writing cert to: {}", cert.display());
 
     // execute CA command
     let mut cmd = Command::new("openssl");
@@ -452,13 +477,13 @@ pub fn ca_sign(
         .arg("-keyform")
         .arg("engine")
         .arg("-keyfile")
-        .arg(format!("0:{:#04}", spec.id))
+        .arg(format!("0:{:#04}", key_spec.id))
         .arg("-extensions")
-        .arg(spec.purpose.to_string())
+        .arg(purpose.to_string())
         .arg("-passin")
         .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-in")
-        .arg(&csr)
+        .arg(&tmp_csr)
         .arg("-out")
         .arg(&cert);
 
@@ -500,7 +525,6 @@ fn bootstrap_ca(key_spec: &KeySpec) -> Result<()> {
     fs::set_permissions(priv_dir, perms)?;
 
     // touch 'index.txt' file
-    use std::fs::OpenOptions;
     let index = "index.txt";
     debug!("touching file {}", index);
     OpenOptions::new().create(true).write(true).open(index)?;
@@ -630,9 +654,6 @@ pub fn hsm_initialize(
     );
 
     wait_for_line();
-
-    use std::fs::OpenOptions;
-    use std::io::Write;
 
     let mut print_file = OpenOptions::new()
         .create(true)

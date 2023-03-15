@@ -55,8 +55,8 @@ enum CaCommand {
     /// Use the CA associated with the provided key spec to sign the
     /// provided CSR.
     Sign {
-        #[clap(long, env, default_value = "data/p384-sha384.csr.pem")]
-        csr: PathBuf,
+        #[clap(long, env, default_value = "data/p384-sha384.csrspec.json")]
+        csr_spec: PathBuf,
     },
 }
 
@@ -104,8 +104,8 @@ fn main() -> Result<()> {
             CaCommand::Initialize => {
                 oks_util::ca_initialize(&key_spec, &state, &args.public)
             }
-            CaCommand::Sign { csr } => {
-                oks_util::ca_sign(&key_spec, &csr, &state, &args.public)
+            CaCommand::Sign { csr_spec } => {
+                oks_util::ca_sign(&csr_spec, &state, &args.public)
             }
         },
         Command::Hsm { command } => {
