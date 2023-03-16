@@ -6,6 +6,14 @@ A utility and library for managing and interacting with the offline keystore.
 """
 edition = "2021"
 
+[[bin]]
+name = "oks"
+path = "src/main.rs"
+
+[[bin]]
+name = "format_csr"
+path = "util/format_csr.rs"
+
 [dependencies]
 anyhow = "1.0.69"
 clap = { version = "4.1.6", features = ["derive", "env"] }
