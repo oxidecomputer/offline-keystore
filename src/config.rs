@@ -182,6 +182,15 @@ struct OksCsrSpec {
     pub csr: Vec<String>,
 }
 
+impl From<&CsrSpec> for OksCsrSpec {
+    fn from(value: &CsrSpec) -> Self {
+        let label = OksLabel(value.label.to_string());
+        let csr: Vec<_> = value.csr.lines().map(str::to_string).collect();
+
+        Self { label, csr }
+    }
+}
+
 /// CSRs are great but we need to know which key / CA should be used to sign
 /// the cert. This is a small wrapper over a key label and a CSR. When sending
 /// a CSR to the OKS, populate this structure with the label for the key / CA
@@ -192,6 +201,14 @@ pub struct CsrSpec {
     pub label: Label,
     /// the CSR to be signed
     pub csr: String,
+}
+
+impl CsrSpec {
+    /// Return the JSON representation of CsrSpec
+    pub fn json(&self) -> Result<String, serde_json::Error> {
+        let oks_csr_spec = OksCsrSpec::from(self);
+        serde_json::to_string(&oks_csr_spec)
+    }
 }
 
 impl FromStr for CsrSpec {
@@ -365,6 +382,42 @@ mod tests {
         );
         assert_eq!(csr_spec.csr,
             "-----BEGIN CERTIFICATE REQUEST-----\nOQ==\n-----END CERTIFICATE REQUEST-----");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_csr_spec_serialize() -> Result<()> {
+        // strategy: first convert to json, which is the operation under test,
+        // then deserialize that back into an OksCsrSpec and compare with one
+        // that we expect.
+        let label = "psc-rot-stage0-code-signing-dev-a";
+        let csr = "-----BEGIN CERTIFICATE REQUEST-----
+0000000000000000000000000000000000000000000000000000000000000000
+1111111111111111111111111111111111111111111111111111111111111111
+-----END CERTIFICATE REQUEST-----
+"
+        .to_string();
+
+        let csr_spec = CsrSpec {
+            label: Label::from_str(label)?,
+            csr,
+        };
+        let json = csr_spec.json()?;
+
+        let oks_csr_spec: OksCsrSpec = serde_json::from_str(&json)?;
+
+        let expected = OksCsrSpec {
+            label: OksLabel(label.to_string()),
+            csr: vec![
+                "-----BEGIN CERTIFICATE REQUEST-----".to_string(),
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+                "-----END CERTIFICATE REQUEST-----".to_string(),
+            ]
+        };
+
+        assert_eq!(expected, oks_csr_spec);
 
         Ok(())
     }
