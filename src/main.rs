@@ -66,11 +66,15 @@ enum HsmCommand {
         #[clap(long, env)]
         key_spec: PathBuf,
     },
+    /// Display device info.
+    Info,
     /// Initialize the YubiHSM for use in the OKS.
     Initialize {
         #[clap(long, env, default_value = "/dev/usb/lp0")]
         print_dev: PathBuf,
     },
+    /// Reset to factory defaults
+    Reset,
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
 }
@@ -130,12 +134,14 @@ fn main() -> Result<()> {
             let client = Client::open(connector, credentials, true)?;
 
             match command {
+                HsmCommand::Info => oks::hsm::dump_info(&client),
                 HsmCommand::Initialize { print_dev } => {
                     oks::hsm::initialize(&client, &args.public, &print_dev)
                 }
                 HsmCommand::Generate { key_spec } => {
                     oks::hsm::generate(&client, &key_spec, &args.public)
                 }
+                HsmCommand::Reset => oks::hsm::reset(&client),
                 HsmCommand::Restore => oks::hsm::restore(&client),
             }
         }
