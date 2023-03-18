@@ -120,6 +120,25 @@ pub fn generate_keyspec(
     Ok(())
 }
 
+pub fn dump_info(client: &Client) -> Result<()> {
+    let info = client.device_info()?;
+    println!("{:#?}", info);
+    Ok(())
+}
+
+pub fn reset(client: &Client) -> Result<()> {
+    let info = client.device_info()?;
+    info!("resetting device with SN: {}", info.serial_number);
+
+    if are_you_sure()? {
+        client.reset_device()?;
+        debug!("reset successful");
+    } else {
+        info!("reset aborted");
+    }
+    Ok(())
+}
+
 /// This function prompts the user to enter M of the N backup shares. It
 /// uses these shares to reconstitute the wrap key. This wrap key can then
 /// be used to restore previously backed up / export wrapped keys.
@@ -335,4 +354,17 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
 /// control progression through the key shares displayed in the terminal.
 fn wait_for_line() {
     let _ = io::stdin().lines().next().unwrap().unwrap();
+}
+
+fn are_you_sure() -> Result<bool> {
+    print!("Are you sure? (y/n):");
+    io::stdout().flush()?;
+
+    let mut buffer = String::new();
+    io::stdin().read_line(&mut buffer)?;
+
+    let buffer = buffer.trim().to_ascii_lowercase();
+    debug!("got: \"{}\"", buffer);
+
+    Ok(buffer == "y")
 }
