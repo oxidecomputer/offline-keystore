@@ -66,15 +66,19 @@ enum HsmCommand {
         #[clap(long, env)]
         key_spec: PathBuf,
     },
+
     /// Display device info.
     Info,
+
     /// Initialize the YubiHSM for use in the OKS.
     Initialize {
         #[clap(long, env, default_value = "/dev/usb/lp0")]
         print_dev: PathBuf,
     },
+
     /// Reset to factory defaults
     Reset,
+
     /// Restore a previously split aes256-ccm-wrap key
     Restore,
 }
@@ -104,22 +108,20 @@ fn main() -> Result<()> {
             }
         },
         Command::Hsm { command } => {
+            // Setup authentication credentials:
             // For 'initialize' subcommand we assume the YubiHSM is in its
             // default state: auth key id is 1, password is 'password'.
-            // Any other HSM subcommand we assume:
-            // - the auth id is 2 which is the id of the auth key created
-            //   during initialization
-            // - the user will be prompted for a password
-            let passwd = match command {
+            // Any other HSM subcommand:
+            // - we assume the auth id is the same one we setup when executing
+            // the initialize command: 2
+            // - the user is prompted for a password
+            let (auth_id, passwd) = match command {
                 HsmCommand::Initialize { print_dev: _ } => {
-                    "password".to_string()
+                    (1, "password".to_string())
                 }
-                _ => rpassword::prompt_password("Enter YubiHSM Password: ")
-                    .unwrap(),
-            };
-            let auth_id = match command {
-                HsmCommand::Initialize { print_dev: _ } => 1, // default auth key id for YubiHSM
-                _ => 2, // auth key id we create in initialize
+                _ => {
+                    (2, rpassword::prompt_password("Enter YubiHSM Password: ")?)
+                }
             };
 
             let config = UsbConfig {
@@ -127,8 +129,6 @@ fn main() -> Result<()> {
                 timeout_ms: TIMEOUT_MS,
             };
             let connector = Connector::usb(&config);
-            // this will only work if the default auth key is still available
-            // the next step in our process must be: replace the default auth key
             let credentials =
                 Credentials::from_password(auth_id, passwd.as_bytes());
             let client = Client::open(connector, credentials, true)?;
