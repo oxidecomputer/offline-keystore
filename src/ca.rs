@@ -55,7 +55,7 @@ pkcs11                      = pkcs11_section
 
 [pkcs11_section]
 engine_id                   = pkcs11
-MODULE_PATH                 = /usr/lib/pkcs11/yubihsm_pkcs11.so
+MODULE_PATH                 = {pkcs11_path}
 INIT_ARGS                   = connector=http://127.0.0.1:12345 debug
 init                        = 0
 
@@ -153,7 +153,12 @@ fn passwd_to_env(env_str: &str) -> Result<()> {
 /// is likely caused by the pkcs11 module not cleaning up after itself. To
 /// account for this we sleep between invocations of the openssl tools to give
 /// the stale sessions time to be reclaimed by the HSM.
-pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
+pub fn initialize(
+    key_spec: &Path,
+    pkcs11_path: &Path,
+    ca_state: &Path,
+    out: &Path,
+) -> Result<()> {
     let key_spec = fs::canonicalize(key_spec)?;
     debug!("canonical KeySpec path: {}", key_spec.display());
 
@@ -176,7 +181,9 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
         info!("Initializing CA from KeySpec: {:?}", path);
         // sleep to let sessions cycle
         thread::sleep(Duration::from_millis(1500));
-        if let Err(e) = initialize_keyspec(&path, &tmp_dir, ca_state, out) {
+        if let Err(e) =
+            initialize_keyspec(&path, pkcs11_path, &tmp_dir, ca_state, out)
+        {
             // Ignore possible error from killing connector because we already
             // have an error to report and it'll be more interesting.
             let _ = connector.kill();
@@ -191,6 +198,7 @@ pub fn initialize(key_spec: &Path, ca_state: &Path, out: &Path) -> Result<()> {
 
 fn initialize_keyspec(
     key_spec: &Path,
+    pkcs11_path: &Path,
     tmp_dir: &TempDir,
     ca_state: &Path,
     out: &Path,
@@ -225,7 +233,7 @@ fn initialize_keyspec(
     // copy the key spec file to the ca state dir
     fs::write("key.spec", json)?;
 
-    bootstrap_ca(&spec)?;
+    bootstrap_ca(&spec, pkcs11_path)?;
 
     // We're chdir-ing around and that makes it a PITA to keep track of file
     // paths. Stashing everything in a tempdir make it easier to copy it all
@@ -457,7 +465,7 @@ pub fn sign_csrspec(
 }
 
 /// Create the directory structure and initial files expected by the `openssl ca` tool.
-fn bootstrap_ca(key_spec: &KeySpec) -> Result<()> {
+fn bootstrap_ca(key_spec: &KeySpec, pkcs11_path: &Path) -> Result<()> {
     // create directories expected by `openssl ca`: crl, newcerts
     for dir in ["crl", "newcerts"] {
         debug!("creating directory: {}?", dir);
@@ -492,7 +500,12 @@ fn bootstrap_ca(key_spec: &KeySpec) -> Result<()> {
     // create & write out an openssl.cnf
     fs::write(
         "openssl.cnf",
-        format!(openssl_cnf_fmt!(), key = key_spec.id, hash = key_spec.hash),
+        format!(
+            openssl_cnf_fmt!(),
+            key = key_spec.id,
+            hash = key_spec.hash,
+            pkcs11_path = pkcs11_path.display()
+        ),
     )?;
 
     Ok(())
