@@ -52,6 +52,14 @@ enum CaCommand {
         /// Spec file describing the CA signing key
         #[clap(long, env, default_value = "data/key-request-ecp384.json")]
         key_spec: PathBuf,
+
+        /// Path to the YubiHSM PKCS#11 module
+        #[clap(
+            long,
+            env = "OKS_PKCS11_PATH",
+            default_value = "/usr/lib/pkcs11/yubihsm_pkcs11.so"
+        )]
+        pkcs11_path: PathBuf,
     },
 
     /// Use the CA associated with the provided key spec to sign the
@@ -139,9 +147,15 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Ca { command, state } => match command {
-            CaCommand::Initialize { key_spec } => {
-                oks::ca::initialize(&key_spec, &state, &args.public)
-            }
+            CaCommand::Initialize {
+                key_spec,
+                pkcs11_path,
+            } => oks::ca::initialize(
+                &key_spec,
+                &pkcs11_path,
+                &state,
+                &args.public,
+            ),
             CaCommand::Sign { csr_spec } => {
                 oks::ca::sign(&csr_spec, &state, &args.public)
             }
