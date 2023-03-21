@@ -5,8 +5,11 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Builder;
-use log::LevelFilter;
-use std::path::PathBuf;
+use log::{warn, LevelFilter};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use yubihsm::{Client, Connector, Credentials, UsbConfig};
 
 #[derive(Parser, Debug)]
@@ -86,6 +89,40 @@ enum HsmCommand {
 // 2 minute to support RSA4K key generation
 const TIMEOUT_MS: u64 = 120000;
 
+// Create output directories for the commands that need them
+fn create_required_dirs(args: &Args) -> Result<()> {
+    match &args.command {
+        Command::Hsm { command } => match command {
+            HsmCommand::Info | HsmCommand::Reset => (),
+            _ => make_dir(&args.public)?,
+        },
+        Command::Ca { command: _, state } => {
+            make_dir(state)?;
+            make_dir(&args.public)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn make_dir(path: &Path) -> Result<()> {
+    if !path.try_exists()? {
+        // public directory doesn't exist, create it
+        warn!(
+            "required directory does not exist, creating: \"{}\"",
+            path.display()
+        );
+        Ok(fs::create_dir_all(path)?)
+    } else if !path.is_dir() {
+        Err(anyhow::anyhow!(
+            "directory provided is not a directory: \"{}\"",
+            path.display()
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -97,6 +134,8 @@ fn main() -> Result<()> {
         LevelFilter::Info
     };
     builder.filter(None, level).init();
+
+    create_required_dirs(&args)?;
 
     match args.command {
         Command::Ca { command, state } => match command {
