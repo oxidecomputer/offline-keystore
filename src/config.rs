@@ -257,16 +257,16 @@ mod tests {
     use super::*;
 
     const JSON_RSA4K: &str = r#"{
-            "common_name":
-                "Gimlet RoT Stage0 Code Signing Engineering Offline CA A",
-            "id":1,
-            "algorithm":"Rsa4096",
-            "capabilities":"All",
-            "domain":"DOM1",
-            "hash":"Sha256",
-            "label":"rot-stage0-signing-root-eng-a",
-            "purpose":"ProductionCodeSigning"
-        }"#;
+        "common_name":
+            "Gimlet RoT Stage0 Code Signing Engineering Offline CA A",
+        "id":1,
+        "algorithm":"Rsa4096",
+        "capabilities":"All",
+        "domain":"DOM1",
+        "hash":"Sha256",
+        "label":"rot-stage0-signing-root-eng-a",
+        "purpose":"ProductionCodeSigning"
+    }"#;
 
     #[test]
     fn test_rsa4k_deserialize() -> Result<()> {
