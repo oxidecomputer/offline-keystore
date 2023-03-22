@@ -429,6 +429,9 @@ pub fn sign_csrspec(
     let cert = publish.join(format!("{}.cert.pem", csr_prefix));
     debug!("writing cert to: {}", cert.display());
 
+    // sleep to let sessions cycle
+    thread::sleep(Duration::from_millis(2500));
+
     // execute CA command
     let mut cmd = Command::new("openssl");
     cmd.arg("ca")
