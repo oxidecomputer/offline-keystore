@@ -40,6 +40,8 @@ const SHARES: u8 = 5;
 const THRESHOLD: u8 = 3;
 sa::const_assert!(THRESHOLD <= SHARES);
 
+const BACKUP_EXT: &str = ".backup.json";
+
 #[derive(Error, Debug)]
 pub enum HsmError {
     #[error("path not a directory")]
@@ -89,15 +91,24 @@ pub fn delete(client: &Client, id: Id, kind: Type) -> Result<()> {
 }
 
 pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
-    info!("reading backup from \"{}\"", file.as_ref().display());
-    let json = fs::read_to_string(file)?;
-    debug!("backup json: {}", json);
+    let file = file.as_ref();
+    info!("reading backup from \"{}\"", file.display());
+    let paths = if file.is_file() {
+        vec![file.to_path_buf()]
+    } else {
+        config::files_with_ext(file, BACKUP_EXT)?
+    };
 
-    let message: Message = serde_json::from_str(&json)?;
-    debug!("deserialized message: {:?}", &message);
+    for path in paths {
+        let json = fs::read_to_string(path)?;
+        debug!("backup json: {}", json);
 
-    let handle = client.import_wrapped(WRAP_ID, message)?;
-    info!("import successful: {:?}", &handle);
+        let message: Message = serde_json::from_str(&json)?;
+        debug!("deserialized message: {:?}", &message);
+
+        let handle = client.import_wrapped(WRAP_ID, message)?;
+        info!("import successful: {:?}", &handle);
+    }
 
     Ok(())
 }
