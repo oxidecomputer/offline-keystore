@@ -76,6 +76,20 @@ enum CaCommand {
 
 #[derive(Subcommand, Debug, PartialEq)]
 enum HsmCommand {
+    /// Export an object identified under wrap.
+    Backup {
+        #[clap(long, env)]
+        id: Id,
+
+        #[clap(long, env)]
+        kind: String,
+
+        /// An optional file name where the backup is written. If omitted
+        /// the file will be named according to the object label.
+        #[clap(long, env)]
+        file: Option<PathBuf>,
+    },
+
     /// Delete object.
     Delete {
         #[clap(long, env)]
@@ -106,7 +120,8 @@ enum HsmCommand {
     /// Restore a previously backed up key.
     Restore {
         /// An optional file name where the backup is written. If omitted
-        /// the file will be named according to the object label.
+        /// the file will be named according to the object label and created
+        /// relative to `--public`.
         #[clap(long, env)]
         file: PathBuf,
     },
@@ -208,6 +223,17 @@ fn main() -> Result<()> {
             let client = Client::open(connector, credentials, true)?;
 
             match command {
+                HsmCommand::Backup { id, kind, file } => {
+                    // this is a bit weird but necessary because the Type type
+                    // returns () on error, not a type implementing std::Error
+                    let kind = match Type::from_str(&kind) {
+                        Ok(k) => k,
+                        Err(_) => {
+                            return Err(anyhow::anyhow!("Invalid object type."))
+                        }
+                    };
+                    oks::hsm::backup(&client, id, kind, file, &args.public)
+                }
                 HsmCommand::Delete { id, kind } => {
                     // this is a bit weird but necessary because the Type type
                     // returns () on error, not a type implementing std::Error

@@ -54,6 +54,35 @@ pub enum HsmError {
     Version,
 }
 
+/// Provided a key ID and a object type this function will find the object
+/// in the HSM and generate the appropriate KeySpec for it.
+pub fn backup<P: AsRef<Path>>(
+    client: &Client,
+    id: Id,
+    kind: Type,
+    file: Option<P>,
+    out: &P,
+) -> Result<()> {
+    info!("backing up object with id: {:#06x} and type: {}", id, kind);
+    let message = client.export_wrapped(WRAP_ID, kind, id)?;
+    debug!("Got Message: {:?}", &message);
+
+    let json = serde_json::to_string(&message)?;
+    debug!("JSON: {}", json);
+
+    let path = match file {
+        Some(p) => p.as_ref().to_owned(),
+        None => {
+            // get info so we can use the object label to name the backup file
+            let info = client.get_object_info(id, kind)?;
+            out.as_ref().join(format!("{}.backup.json", info.label))
+        }
+    };
+
+    info!("writing backup to: \"{}\"", path.display());
+    Ok(fs::write(path, json)?)
+}
+
 pub fn delete(client: &Client, id: Id, kind: Type) -> Result<()> {
     info!("deleting object with id: {} type: {}", &id, &kind);
     Ok(client.delete_object(id, kind)?)
