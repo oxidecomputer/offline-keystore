@@ -53,6 +53,11 @@ pub enum HsmError {
     Version,
 }
 
+pub fn delete(client: &Client, id: Id, kind: Type) -> Result<()> {
+    info!("deleting object with id: {} type: {}", &id, &kind);
+    Ok(client.delete_object(id, kind)?)
+}
+
 pub fn generate(
     client: &Client,
     key_spec: &Path,

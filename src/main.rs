@@ -72,6 +72,15 @@ enum CaCommand {
 
 #[derive(Subcommand, Debug, PartialEq)]
 enum HsmCommand {
+    /// Delete object.
+    Delete {
+        #[clap(long, env)]
+        id: Id,
+
+        #[clap(long, env)]
+        kind: String,
+    },
+
     /// Generate keys in YubiHSM from specification.
     Generate {
         #[clap(long, env)]
@@ -187,6 +196,17 @@ fn main() -> Result<()> {
             let client = Client::open(connector, credentials, true)?;
 
             match command {
+                HsmCommand::Delete { id, kind } => {
+                    // this is a bit weird but necessary because the Type type
+                    // returns () on error, not a type implementing std::Error
+                    let kind = match Type::from_str(&kind) {
+                        Ok(k) => k,
+                        Err(_) => {
+                            return Err(anyhow::anyhow!("Invalid object type."))
+                        }
+                    };
+                    oks::hsm::delete(&client, id, kind)
+                }
                 HsmCommand::Info => oks::hsm::dump_info(&client),
                 HsmCommand::Initialize { print_dev } => {
                     oks::hsm::initialize(&client, &args.public, &print_dev)
