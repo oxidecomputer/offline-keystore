@@ -9,8 +9,12 @@ use log::{warn, LevelFilter};
 use std::{
     fs,
     path::{Path, PathBuf},
+    str::FromStr,
 };
-use yubihsm::{Client, Connector, Credentials, UsbConfig};
+use yubihsm::{
+    object::{Id, Type},
+    Client, Connector, Credentials, UsbConfig,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -99,8 +103,16 @@ enum HsmCommand {
     /// Reset to factory defaults
     Reset,
 
+    /// Restore a previously backed up key.
+    Restore {
+        /// An optional file name where the backup is written. If omitted
+        /// the file will be named according to the object label.
+        #[clap(long, env)]
+        file: PathBuf,
+    },
+
     /// Restore a previously split aes256-ccm-wrap key
-    Restore,
+    RestoreWrap,
 }
 
 // 2 minute to support RSA4K key generation
@@ -215,7 +227,10 @@ fn main() -> Result<()> {
                     oks::hsm::generate(&client, &key_spec, &args.public)
                 }
                 HsmCommand::Reset => oks::hsm::reset(&client),
-                HsmCommand::Restore => oks::hsm::restore(&client),
+                HsmCommand::Restore { file } => {
+                    oks::hsm::restore(&client, file)
+                }
+                HsmCommand::RestoreWrap => oks::hsm::restore_wrap(&client),
             }
         }
     }

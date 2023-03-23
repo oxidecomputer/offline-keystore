@@ -16,7 +16,8 @@ use thiserror::Error;
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
-    wrap, Capability, Client, Domain,
+    wrap::{self, Message},
+    Capability, Client, Domain,
 };
 use zeroize::Zeroize;
 
@@ -56,6 +57,20 @@ pub enum HsmError {
 pub fn delete(client: &Client, id: Id, kind: Type) -> Result<()> {
     info!("deleting object with id: {} type: {}", &id, &kind);
     Ok(client.delete_object(id, kind)?)
+}
+
+pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
+    info!("reading backup from \"{}\"", file.as_ref().display());
+    let json = fs::read_to_string(file)?;
+    debug!("backup json: {}", json);
+
+    let message: Message = serde_json::from_str(&json)?;
+    debug!("deserialized message: {:?}", &message);
+
+    let handle = client.import_wrapped(WRAP_ID, message)?;
+    info!("import successful: {:?}", &handle);
+
+    Ok(())
 }
 
 pub fn generate(
@@ -147,7 +162,7 @@ pub fn reset(client: &Client) -> Result<()> {
 /// This function prompts the user to enter M of the N backup shares. It
 /// uses these shares to reconstitute the wrap key. This wrap key can then
 /// be used to restore previously backed up / export wrapped keys.
-pub fn restore(client: &Client) -> Result<()> {
+pub fn restore_wrap(client: &Client) -> Result<()> {
     let mut shares: Vec<String> = Vec::new();
 
     for i in 1..=THRESHOLD {
