@@ -5,7 +5,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Builder;
-use log::{warn, LevelFilter};
+use log::{info, warn, LevelFilter};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -119,15 +119,15 @@ enum HsmCommand {
 
     /// Restore a previously backed up key.
     Restore {
-        /// An optional file name where the backup is written. If omitted
-        /// the file will be named according to the object label and created
-        /// relative to `--public`.
+        /// An optional file name holding the wrapped object to be restored.
+        /// If omitted all files with the 'backup.json' extension within the
+        /// directory from '--public' will be restored
         #[clap(long, env)]
-        file: PathBuf,
+        file: Option<PathBuf>,
     },
 
     /// Restore a previously split aes256-ccm-wrap key
-    RestoreWrap,
+    RestoreAll,
 }
 
 // 2 minute to support RSA4K key generation
@@ -198,16 +198,15 @@ fn main() -> Result<()> {
         },
         Command::Hsm { command } => {
             // Setup authentication credentials:
-            // For 'initialize' subcommand we assume the YubiHSM is in its
-            // default state: auth key id is 1, password is 'password'.
-            // Any other HSM subcommand:
+            // For 'initialize' and 'restore-wrap' subcommands we assume the
+            // YubiHSM is in its default state: auth key id is 1, password is
+            // 'password'. Any other HSM subcommand:
             // - we assume the auth id is the same one we setup when executing
             // the initialize command: 2
             // - the user is prompted for a password
             let (auth_id, passwd) = match command {
-                HsmCommand::Initialize { print_dev: _ } => {
-                    (1, "password".to_string())
-                }
+                HsmCommand::Initialize { print_dev: _ }
+                | HsmCommand::RestoreAll => (1, "password".to_string()),
                 _ => {
                     (2, rpassword::prompt_password("Enter YubiHSM Password: ")?)
                 }
@@ -254,9 +253,24 @@ fn main() -> Result<()> {
                 }
                 HsmCommand::Reset => oks::hsm::reset(&client),
                 HsmCommand::Restore { file } => {
+                    let file = match file {
+                        Some(p) => p,
+                        None => args.public,
+                    };
                     oks::hsm::restore(&client, file)
                 }
-                HsmCommand::RestoreWrap => oks::hsm::restore_wrap(&client),
+                HsmCommand::RestoreAll => {
+                    info!("Restoring HSM from backup");
+                    info!("Restoring backup / wrap key from shares");
+                    oks::hsm::restore_wrap(&client)?;
+                    info!(
+                        "Restoring keys from backups in: \"{}\"",
+                        &args.public.display()
+                    );
+                    oks::hsm::restore(&client, &args.public)?;
+                    info!("Deleting default authentication key");
+                    oks::hsm::delete(&client, 1, Type::AuthenticationKey)
+                }
             }
         }
     }
