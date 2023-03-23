@@ -145,20 +145,13 @@ pub fn generate_keyspec(
     )?;
     debug!("new {:#?} key w/ id: {}", spec.algorithm, id);
 
-    debug!(
-        "exporting new asymmetric key under wrap-key w/ id: {}",
-        WRAP_ID
-    );
-    let msg = client.export_wrapped(WRAP_ID, Type::AsymmetricKey, id)?;
-    let msg_json = serde_json::to_string(&msg)?;
-
-    debug!("exported asymmetric key: {:#?}", msg_json);
-
-    let mut out_pathbuf = out_dir.to_path_buf();
-    out_pathbuf.push(format!("{}.wrap.json", spec.label));
-
-    debug!("writing to: {}", out_pathbuf.display());
-    fs::write(out_pathbuf, msg_json)?;
+    backup(
+        client,
+        id,
+        Type::AsymmetricKey,
+        None,
+        &out_dir.to_path_buf(),
+    )?;
 
     // get yubihsm attestation
     info!("Getting attestation for key with label: {}", spec.label);
@@ -370,20 +363,13 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
         Type::AuthenticationKey,
     )?;
 
-    debug!("exporting new auth key under wrap-key w/ id: {}", wrap_id);
-    let msg =
-        client.export_wrapped(wrap_id, Type::AuthenticationKey, AUTH_ID)?;
-
-    // include additional metadata (enough to reconstruct current state)?
-    let msg_json = serde_json::to_string(&msg)?;
-
-    debug!("msg_json: {:#?}", msg_json);
-
-    // we need to append a name for our file
-    let mut auth_wrap_path = out_dir.to_path_buf();
-    auth_wrap_path.push(format!("{}.wrap.json", AUTH_LABEL));
-    debug!("writing to: {}", auth_wrap_path.display());
-    fs::write(&auth_wrap_path, msg_json)?;
+    backup(
+        client,
+        AUTH_ID,
+        Type::AuthenticationKey,
+        None,
+        &out_dir.to_path_buf(),
+    )?;
 
     // dump cert for default attesation key in hsm
     debug!("extracting attestation certificate");
