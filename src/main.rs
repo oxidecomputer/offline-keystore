@@ -54,7 +54,7 @@ enum CaCommand {
     /// Initialize an OpenSSL CA for the given key.
     Initialize {
         /// Spec file describing the CA signing key
-        #[clap(long, env, default_value = "data/key-request-ecp384.json")]
+        #[clap(long, env, default_value = "input")]
         key_spec: PathBuf,
 
         /// Path to the YubiHSM PKCS#11 module
@@ -69,7 +69,7 @@ enum CaCommand {
     /// Use the CA associated with the provided key spec to sign the
     /// provided CSR.
     Sign {
-        #[clap(long, env, default_value = "data/p384-sha384.csrspec.json")]
+        #[clap(long, env, default_value = "input")]
         csr_spec: PathBuf,
     },
 }
