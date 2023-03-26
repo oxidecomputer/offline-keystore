@@ -185,12 +185,18 @@ pub fn initialize(
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
 
     let tmp_dir = TempDir::new()?;
+    let tmp_ca_state = tmp_dir.path().join("ca-state");
+    fs::create_dir_all(&tmp_ca_state)?;
+
+    let tmp_out = tmp_dir.path().join("public");
+    fs::create_dir_all(&tmp_out)?;
+
     for path in paths {
         info!("Initializing CA from KeySpec: {:?}", path);
         // sleep to let sessions cycle
         thread::sleep(Duration::from_millis(1500));
         if let Err(e) =
-            initialize_keyspec(&path, pkcs11_path, &tmp_dir, ca_state, out)
+            initialize_keyspec(&path, pkcs11_path, &tmp_ca_state, &tmp_out)
         {
             // Ignore possible error from killing connector because we already
             // have an error to report and it'll be more interesting.
@@ -201,13 +207,26 @@ pub fn initialize(
 
     connector.kill()?;
 
+    // copy contents of temp directory to out
+    debug!("tmpdir: {:?}", tmp_dir);
+    let paths = fs::read_dir(&tmp_ca_state)?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, io::Error>>()?;
+    let opts = CopyOptions::default().overwrite(true);
+    fs_extra::move_items(&paths, ca_state, &opts)?;
+
+    let paths = fs::read_dir(&tmp_out)?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, io::Error>>()?;
+    let opts = CopyOptions::default().overwrite(true);
+    fs_extra::move_items(&paths, out, &opts)?;
+
     Ok(())
 }
 
 fn initialize_keyspec(
     key_spec: &Path,
     pkcs11_path: &Path,
-    tmp_dir: &TempDir,
     ca_state: &Path,
     out: &Path,
 ) -> Result<()> {
@@ -233,8 +252,8 @@ fn initialize_keyspec(
     // setup CA directory structure
     let label = spec.label.to_string();
     let ca_dir = ca_state.join(&label);
+    fs::create_dir_all(&ca_dir)?;
     info!("bootstrapping CA files in: {}", ca_dir.display());
-    fs::create_dir(&ca_dir)?;
     debug!("setting current directory: {}", ca_dir.display());
     std::env::set_current_dir(&ca_dir)?;
 
@@ -246,7 +265,7 @@ fn initialize_keyspec(
     // We're chdir-ing around and that makes it a PITA to keep track of file
     // paths. Stashing everything in a tempdir make it easier to copy it all
     // out when we're done.
-    let csr = tmp_dir.path().join(format!("{}.csr.pem", label));
+    let csr = out.join(format!("{}.csr.pem", label));
 
     // sleep to let sessions cycle
     thread::sleep(Duration::from_millis(1500));
@@ -315,18 +334,10 @@ fn initialize_keyspec(
         return Err(CaError::SelfCertGenFail.into());
     }
 
-    let cert = tmp_dir.path().join(format!("{}.cert.pem", label));
+    let cert = out.join(format!("{}.cert.pem", label));
     fs::copy("ca.cert.pem", cert)?;
 
     env::set_current_dir(pwd)?;
-
-    // copy contents of temp directory to out
-    debug!("tmpdir: {:?}", tmp_dir);
-    let paths = fs::read_dir(tmp_dir.path())?
-        .map(|res| res.map(|e| e.path()))
-        .collect::<Result<Vec<_>, io::Error>>()?;
-    let opts = CopyOptions::default().overwrite(true);
-    fs_extra::move_items(&paths, out, &opts)?;
 
     Ok(())
 }
