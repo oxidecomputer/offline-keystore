@@ -267,7 +267,7 @@ fn initialize_keyspec(
     let label = spec.label.to_string();
     let ca_dir = ca_state.join(&label);
     fs::create_dir_all(&ca_dir)?;
-    info!("bootstrapping CA files in: {}", ca_dir.display());
+    info!("Bootstrapping CA files for key with label: {}", &label);
     debug!("setting current directory: {}", ca_dir.display());
     std::env::set_current_dir(&ca_dir)?;
 
@@ -304,7 +304,7 @@ fn initialize_keyspec(
         .arg(&csr)
         .output()?;
 
-    info!("executing command: \"{:#?}\"", cmd);
+    debug!("executing command: \"{:#?}\"", cmd);
 
     if !output.status.success() {
         warn!("command failed with status: {}", output.status);
@@ -316,7 +316,7 @@ fn initialize_keyspec(
     thread::sleep(Duration::from_millis(1500));
 
     //  generate cert for CA root
-    //  select v3 extensions from ... key spec?
+    info!("Generating self-signed cert for CA root");
     let mut cmd = Command::new("openssl");
     let output = cmd
         .arg("ca")
@@ -340,7 +340,7 @@ fn initialize_keyspec(
         .arg("ca.cert.pem")
         .output()?;
 
-    info!("executing command: \"{:#?}\"", cmd);
+    debug!("executing command: \"{:#?}\"", cmd);
 
     if !output.status.success() {
         warn!("command failed with status: {}", output.status);
@@ -381,7 +381,7 @@ pub fn sign(csr_spec: &Path, state: &Path, publish: &Path) -> Result<()> {
     let tmp_dir = TempDir::new()?;
     for path in paths {
         // process csr spec
-        info!("Signing CSR from spec: {:?}", path);
+        info!("Signing CSR from CsrSpec: {:?}", path);
         if let Err(e) = sign_csrspec(&path, &tmp_dir, state, publish) {
             // Ignore possible error from killing connector because we already
             // have an error to report and it'll be more interesting.
@@ -469,6 +469,10 @@ pub fn sign_csrspec(
     thread::sleep(Duration::from_millis(2500));
 
     // execute CA command
+    info!(
+        "Generating cert from CSR & signing with key: {}",
+        key_spec.label.to_string()
+    );
     let mut cmd = Command::new("openssl");
     cmd.arg("ca")
         .arg("-batch")
@@ -489,7 +493,7 @@ pub fn sign_csrspec(
         .arg("-out")
         .arg(&cert);
 
-    info!("executing command: \"{:#?}\"", cmd);
+    debug!("executing command: \"{:#?}\"", cmd);
     let output = cmd.output()?;
 
     if !output.status.success() {
