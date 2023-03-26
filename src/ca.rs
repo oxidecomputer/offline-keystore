@@ -331,15 +331,23 @@ fn initialize_keyspec(
     Ok(())
 }
 
-pub fn sign(csr_spec_path: &Path, state: &Path, publish: &Path) -> Result<()> {
-    let csr_spec_path = fs::canonicalize(csr_spec_path)?;
-    debug!("canonical CsrSpec path: {}", csr_spec_path.display());
+pub fn sign(csr_spec: &Path, state: &Path, publish: &Path) -> Result<()> {
+    let csr_spec = fs::canonicalize(csr_spec)?;
+    debug!("canonical CsrSpec path: {}", &csr_spec.display());
 
-    let paths = if csr_spec_path.is_file() {
-        vec![csr_spec_path]
+    let paths = if csr_spec.is_file() {
+        vec![csr_spec.clone()]
     } else {
-        config::files_with_ext(&csr_spec_path, CSRSPEC_EXT)?
+        config::files_with_ext(&csr_spec, CSRSPEC_EXT)?
     };
+
+    if paths.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no files with extension \"{}\" found in dir: {}",
+            CSRSPEC_EXT,
+            &csr_spec.display()
+        ));
+    }
 
     // start connector
     debug!("starting connector");
