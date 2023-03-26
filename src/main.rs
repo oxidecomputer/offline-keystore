@@ -78,23 +78,29 @@ enum CaCommand {
 enum HsmCommand {
     /// Export an object identified under wrap.
     Backup {
+        /// Object ID: https://developers.yubico.com/YubiHSM2/Concepts/Object_ID.html
         #[clap(long, env)]
         id: Id,
 
+        /// Object type: https://developers.yubico.com/YubiHSM2/Concepts/Object.html
         #[clap(long, env)]
         kind: String,
 
-        /// An optional file name where the backup is written. If omitted
-        /// the file will be named according to the object label.
-        #[clap(long, env)]
-        file: Option<PathBuf>,
+        /// The file name where the backup is written. If omitted the backup
+        /// will be written to a file named according to the object label
+        /// with the suffix `backup.json`. If a path privided is a directory
+        /// the file will be created in it.
+        #[clap(long, env, default_value = "./")]
+        file: PathBuf,
     },
 
     /// Delete object.
     Delete {
+        /// Object ID: https://developers.yubico.com/YubiHSM2/Concepts/Object_ID.html
         #[clap(long, env)]
         id: Id,
 
+        /// Object type: https://developers.yubico.com/YubiHSM2/Concepts/Object.html
         #[clap(long, env)]
         kind: String,
     },
@@ -231,7 +237,7 @@ fn main() -> Result<()> {
                             return Err(anyhow::anyhow!("Invalid object type."))
                         }
                     };
-                    oks::hsm::backup(&client, id, kind, file, &args.public)
+                    oks::hsm::backup(&client, id, kind, file)
                 }
                 HsmCommand::Delete { id, kind } => {
                     // this is a bit weird but necessary because the Type type
