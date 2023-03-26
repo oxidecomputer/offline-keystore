@@ -163,10 +163,18 @@ pub fn initialize(
     debug!("canonical KeySpec path: {}", key_spec.display());
 
     let paths = if key_spec.is_file() {
-        vec![key_spec]
+        vec![key_spec.clone()]
     } else {
         config::files_with_ext(&key_spec, KEYSPEC_EXT)?
     };
+
+    if paths.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no files with extension \"{}\" found in dir: {}",
+            KEYSPEC_EXT,
+            &key_spec.display()
+        ));
+    }
 
     // start connector
     debug!("starting connector");
