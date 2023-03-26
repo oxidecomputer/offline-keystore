@@ -203,7 +203,8 @@ pub fn restore_wrap(client: &Client) -> Result<()> {
     let mut shares: Vec<String> = Vec::new();
 
     for i in 1..=THRESHOLD {
-        println!("Enter share[{}]: ", i);
+        print!("Enter share[{}]: ", i);
+        io::stdout().flush()?;
         shares.push(io::stdin().lines().next().unwrap().unwrap());
     }
 
