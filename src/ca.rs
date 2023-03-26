@@ -11,7 +11,7 @@ use std::{
     io,
     os::unix::fs::PermissionsExt,
     path::Path,
-    process::Command,
+    process::{Child, Command, Stdio},
     str::FromStr,
     thread,
     time::Duration,
@@ -56,7 +56,8 @@ pkcs11                      = pkcs11_section
 [pkcs11_section]
 engine_id                   = pkcs11
 MODULE_PATH                 = {pkcs11_path}
-INIT_ARGS                   = connector=http://127.0.0.1:12345 debug
+# add 'debug' to INIT_ARGS
+INIT_ARGS                   = connector=http://127.0.0.1:12345
 init                        = 0
 
 [ ca ]
@@ -145,6 +146,24 @@ fn passwd_to_env(env_str: &str) -> Result<()> {
     Ok(())
 }
 
+/// Start the yubihsm-connector process.
+/// NOTE: The connector dumps ~10 lines of text for each command.
+/// We can increase verbosity with the `-debug` flag, but the only way
+/// we can dial this down is by sending stderr to /dev/null.
+fn start_connector() -> Result<Child> {
+    debug!("starting connector");
+    let child = Command::new("yubihsm-connector")
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()?;
+
+    // Sleep for a second to allow the connector to start before we start
+    // sending commands to it.
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    Ok(child)
+}
+
 /// Initialize an openssl CA directory & self signed cert for the provided
 /// KeySpec.
 /// NOTE: The YubiHSM supports 16 sessions and stale sessions are recycled
@@ -176,12 +195,7 @@ pub fn initialize(
         ));
     }
 
-    // start connector
-    debug!("starting connector");
-    let mut connector = Command::new("yubihsm-connector").spawn()?;
-
-    debug!("connector started");
-
+    let mut connector = start_connector()?;
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
 
     let tmp_dir = TempDir::new()?;
@@ -360,12 +374,7 @@ pub fn sign(csr_spec: &Path, state: &Path, publish: &Path) -> Result<()> {
         ));
     }
 
-    // start connector
-    debug!("starting connector");
-    let mut connector = Command::new("yubihsm-connector").spawn()?;
-
-    debug!("connector started");
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    let mut connector = start_connector()?;
 
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
 
