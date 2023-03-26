@@ -256,7 +256,6 @@ pub fn initialize(
     // TODO: zeroize
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
     info!("got {} bytes from YubiHSM PRNG", KEY_LEN);
-    debug!("got wrap key: {}", wrap_key.encode_hex::<String>());
 
     // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
     let id = client
