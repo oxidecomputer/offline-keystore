@@ -62,8 +62,7 @@ pub fn backup<P: AsRef<Path>>(
     client: &Client,
     id: Id,
     kind: Type,
-    file: Option<P>,
-    out: &P,
+    file: P,
 ) -> Result<()> {
     info!("backing up object with id: {:#06x} and type: {}", id, kind);
     let message = client.export_wrapped(WRAP_ID, kind, id)?;
@@ -72,13 +71,16 @@ pub fn backup<P: AsRef<Path>>(
     let json = serde_json::to_string(&message)?;
     debug!("JSON: {}", json);
 
-    let path = match file {
-        Some(p) => p.as_ref().to_owned(),
-        None => {
-            // get info so we can use the object label to name the backup file
-            let info = client.get_object_info(id, kind)?;
-            out.as_ref().join(format!("{}.backup.json", info.label))
-        }
+    let path = if file.as_ref().is_dir() {
+        // get info
+        // append format!("{}.backup.json", info.label)
+        let info = client.get_object_info(id, kind)?;
+        file.as_ref().join(format!("{}.backup.json", info.label))
+    } else if file.as_ref().exists() {
+        // file exists ... overwrite it?
+        return Err(anyhow::anyhow!("File already exists."));
+    } else {
+        file.as_ref().to_path_buf()
     };
 
     info!("writing backup to: \"{}\"", path.display());
@@ -156,13 +158,7 @@ pub fn generate_keyspec(
     )?;
     debug!("new {:#?} key w/ id: {}", spec.algorithm, id);
 
-    backup(
-        client,
-        id,
-        Type::AsymmetricKey,
-        None,
-        &out_dir.to_path_buf(),
-    )?;
+    backup(client, id, Type::AsymmetricKey, out_dir)?;
 
     // get yubihsm attestation
     info!("Getting attestation for key with label: {}", spec.label);
@@ -374,13 +370,7 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
         Type::AuthenticationKey,
     )?;
 
-    backup(
-        client,
-        AUTH_ID,
-        Type::AuthenticationKey,
-        None,
-        &out_dir.to_path_buf(),
-    )?;
+    backup(client, AUTH_ID, Type::AuthenticationKey, out_dir)?;
 
     // dump cert for default attesation key in hsm
     debug!("extracting attestation certificate");
