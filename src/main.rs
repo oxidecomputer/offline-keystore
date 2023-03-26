@@ -107,7 +107,7 @@ enum HsmCommand {
 
     /// Generate keys in YubiHSM from specification.
     Generate {
-        #[clap(long, env)]
+        #[clap(long, env, default_value = "input")]
         key_spec: PathBuf,
     },
 
