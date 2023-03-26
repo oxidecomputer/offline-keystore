@@ -209,7 +209,7 @@ pub fn restore_wrap(client: &Client) -> Result<()> {
     }
 
     for (i, share) in shares.iter().enumerate() {
-        println!("share[{}]: {}", i, share);
+        debug!("share[{}]: {}", i, share);
     }
 
     let wrap_key =
