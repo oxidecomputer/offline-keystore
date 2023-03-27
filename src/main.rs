@@ -24,9 +24,13 @@ struct Args {
     #[clap(long, env)]
     verbose: bool,
 
-    /// Directory where we put backups and certs
+    /// Directory where we put certs and attestations
     #[clap(long, env, default_value = "oks-public")]
     public: PathBuf,
+
+    /// Directory where we put KeySpec, CA state and backups
+    #[clap(long, env, default_value = "oks-state")]
+    state: PathBuf,
 
     /// subcommands
     #[command(subcommand)]
@@ -36,10 +40,6 @@ struct Args {
 #[derive(Subcommand, Debug, PartialEq)]
 enum Command {
     Ca {
-        /// Directory where HSM config description and CA state goes
-        #[clap(long, env, default_value = "oks-state")]
-        state: PathBuf,
-
         #[command(subcommand)]
         command: CaCommand,
     },
@@ -151,11 +151,14 @@ fn create_required_dirs(args: &Args) -> Result<()> {
             command,
         } => match command {
             HsmCommand::Info | HsmCommand::Reset => (),
-            _ => make_dir(&args.public)?,
+            _ => {
+                make_dir(&args.public)?;
+                make_dir(&args.state)?;
+            }
         },
-        Command::Ca { command: _, state } => {
-            make_dir(state)?;
+        Command::Ca { command: _ } => {
             make_dir(&args.public)?;
+            make_dir(&args.state)?;
         }
     }
 
@@ -195,18 +198,18 @@ fn main() -> Result<()> {
     create_required_dirs(&args)?;
 
     match args.command {
-        Command::Ca { command, state } => match command {
+        Command::Ca { command } => match command {
             CaCommand::Initialize {
                 key_spec,
                 pkcs11_path,
             } => oks::ca::initialize(
                 &key_spec,
                 &pkcs11_path,
-                &state,
+                &args.state,
                 &args.public,
             ),
             CaCommand::Sign { csr_spec } => {
-                oks::ca::sign(&csr_spec, &state, &args.public)
+                oks::ca::sign(&csr_spec, &args.state, &args.public)
             }
         },
         Command::Hsm { auth_id, command } => {
@@ -264,12 +267,18 @@ fn main() -> Result<()> {
                     oks::hsm::delete(&client, id, kind)
                 }
                 HsmCommand::Info => oks::hsm::dump_info(&client),
-                HsmCommand::Initialize { print_dev } => {
-                    oks::hsm::initialize(&client, &args.public, &print_dev)
-                }
-                HsmCommand::Generate { key_spec } => {
-                    oks::hsm::generate(&client, &key_spec, &args.public)
-                }
+                HsmCommand::Initialize { print_dev } => oks::hsm::initialize(
+                    &client,
+                    &args.state,
+                    &args.public,
+                    &print_dev,
+                ),
+                HsmCommand::Generate { key_spec } => oks::hsm::generate(
+                    &client,
+                    &key_spec,
+                    &args.state,
+                    &args.public,
+                ),
                 HsmCommand::Reset => oks::hsm::reset(&client),
                 HsmCommand::Restore { file } => {
                     let file = match file {
