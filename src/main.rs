@@ -44,6 +44,10 @@ enum Command {
         command: CaCommand,
     },
     Hsm {
+        /// ID of authentication credential
+        #[clap(long, env)]
+        auth_id: Option<Id>,
+
         #[command(subcommand)]
         command: HsmCommand,
     },
@@ -142,7 +146,10 @@ const TIMEOUT_MS: u64 = 120000;
 // Create output directories for the commands that need them
 fn create_required_dirs(args: &Args) -> Result<()> {
     match &args.command {
-        Command::Hsm { command } => match command {
+        Command::Hsm {
+            auth_id: _,
+            command,
+        } => match command {
             HsmCommand::Info | HsmCommand::Reset => (),
             _ => make_dir(&args.public)?,
         },
@@ -202,7 +209,7 @@ fn main() -> Result<()> {
                 oks::ca::sign(&csr_spec, &state, &args.public)
             }
         },
-        Command::Hsm { command } => {
+        Command::Hsm { auth_id, command } => {
             // Setup authentication credentials:
             // For 'initialize' and 'restore-wrap' subcommands we assume the
             // YubiHSM is in its default state: auth key id is 1, password is
@@ -210,12 +217,18 @@ fn main() -> Result<()> {
             // - we assume the auth id is the same one we setup when executing
             // the initialize command: 2
             // - the user is prompted for a password
-            let (auth_id, passwd) = match command {
-                HsmCommand::Initialize { print_dev: _ }
-                | HsmCommand::RestoreAll => (1, "password".to_string()),
-                _ => {
-                    (2, rpassword::prompt_password("Enter YubiHSM Password: ")?)
+            let (auth_id, passwd) = match auth_id {
+                Some(a) => {
+                    (a, rpassword::prompt_password("Enter YubiHSM Password: ")?)
                 }
+                None => match command {
+                    HsmCommand::Initialize { print_dev: _ }
+                    | HsmCommand::RestoreAll => (1, "password".to_string()),
+                    _ => (
+                        2,
+                        rpassword::prompt_password("Enter YubiHSM Password: ")?,
+                    ),
+                },
             };
 
             let config = UsbConfig {
