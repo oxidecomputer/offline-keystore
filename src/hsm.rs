@@ -118,6 +118,7 @@ pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
 pub fn generate(
     client: &Client,
     key_spec: &Path,
+    state_dir: &Path,
     out_dir: &Path,
 ) -> Result<()> {
     let key_spec = fs::canonicalize(key_spec)?;
@@ -138,8 +139,15 @@ pub fn generate(
     }
 
     for path in paths {
+        let json = fs::read_to_string(&path)?;
+        debug!("spec as json: {}", json);
+
+        let spec = KeySpec::from_str(&json)?;
+        debug!("KeySpec from {}: {:#?}", path.display(), spec);
+
         info!("generating key for spec: {:?}", path);
-        generate_keyspec(client, &path, out_dir)?;
+        let id = generate_keyspec(client, &spec, out_dir)?;
+        backup(client, id, Type::AsymmetricKey, state_dir)?;
     }
 
     Ok(())
@@ -148,15 +156,9 @@ pub fn generate(
 /// Generate an asymmetric key from the provided specification.
 pub fn generate_keyspec(
     client: &Client,
-    key_spec: &Path,
+    spec: &KeySpec,
     out_dir: &Path,
-) -> Result<()> {
-    let json = fs::read_to_string(key_spec)?;
-    debug!("spec as json: {}", json);
-
-    let spec = KeySpec::from_str(&json)?;
-    debug!("KeySpec from {}: {:#?}", key_spec.display(), spec);
-
+) -> Result<Id> {
     let id = client.generate_asymmetric_key(
         spec.id,
         spec.label.clone(),
@@ -166,15 +168,13 @@ pub fn generate_keyspec(
     )?;
     debug!("new {:#?} key w/ id: {}", spec.algorithm, id);
 
-    backup(client, id, Type::AsymmetricKey, out_dir)?;
-
     // get yubihsm attestation
     info!("Getting attestation for key with label: {}", spec.label);
     let attest_cert = client.sign_attestation_certificate(spec.id, None)?;
     let attest_path = out_dir.join(format!("{}.attest.cert.pem", spec.label));
     fs::write(attest_path, attest_cert)?;
 
-    Ok(())
+    Ok(id)
 }
 
 pub fn dump_info(client: &Client) -> Result<()> {
@@ -250,6 +250,7 @@ pub fn restore_wrap(client: &Client) -> Result<()> {
 /// function removes the default authentication credentials.
 pub fn initialize(
     client: &Client,
+    state_dir: &Path,
     out_dir: &Path,
     print_dev: &Path,
 ) -> Result<()> {
@@ -280,8 +281,7 @@ pub fn initialize(
     // key with any other id the HSM isn't in the state we think it is.
     assert_eq!(id, WRAP_ID);
 
-    // do the stuff from replace-auth.sh
-    personalize(client, WRAP_ID, out_dir)?;
+    personalize(client, WRAP_ID, state_dir, out_dir)?;
 
     let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
         .with_context(|| {
@@ -338,7 +338,12 @@ const AUTH_LABEL: &str = "admin";
 
 // create a new auth key, remove the default auth key, then export the new
 // auth key under the wrap key with the provided id
-fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
+fn personalize(
+    client: &Client,
+    wrap_id: Id,
+    state_dir: &Path,
+    out_dir: &Path,
+) -> Result<()> {
     debug!(
         "personalizing with wrap key {} and out_dir {}",
         wrap_id,
@@ -360,6 +365,8 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
     // not compatible with Zeroizing wrapper
     let auth_key = Key::derive_from_password(password.as_bytes());
 
+    password.zeroize();
+
     debug!("putting new auth key from provided password");
     // create a new auth key
     client.put_authentication_key(
@@ -378,20 +385,21 @@ fn personalize(client: &Client, wrap_id: Id, out_dir: &Path) -> Result<()> {
         Type::AuthenticationKey,
     )?;
 
-    backup(client, AUTH_ID, Type::AuthenticationKey, out_dir)?;
+    backup(client, AUTH_ID, Type::AuthenticationKey, state_dir)?;
 
+    dump_attest_cert(client, out_dir)?;
+
+    Ok(())
+}
+
+fn dump_attest_cert<P: AsRef<Path>>(client: &Client, out: P) -> Result<()> {
     // dump cert for default attesation key in hsm
     debug!("extracting attestation certificate");
     let attest_cert = client.get_opaque(0)?;
-    let mut attest_path = out_dir.to_path_buf();
-    attest_path.push("hsm.attest.cert.pem");
+    let attest_path = out.as_ref().join("hsm.attest.cert.pem");
 
     debug!("writing attestation cert to: {}", attest_path.display());
-    fs::write(&attest_path, attest_cert)?;
-
-    password.zeroize();
-
-    Ok(())
+    Ok(fs::write(&attest_path, attest_cert)?)
 }
 
 /// This function is used when displaying key shares as a way for the user to
