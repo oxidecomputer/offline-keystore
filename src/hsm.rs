@@ -121,13 +121,12 @@ pub fn generate(
     state_dir: &Path,
     out_dir: &Path,
 ) -> Result<()> {
-    let key_spec = fs::canonicalize(key_spec)?;
     debug!("canonical KeySpec path: {}", key_spec.display());
 
     let paths = if key_spec.is_file() {
-        vec![key_spec.clone()]
+        vec![key_spec.to_path_buf()]
     } else {
-        config::files_with_ext(&key_spec, KEYSPEC_EXT)?
+        config::files_with_ext(key_spec, KEYSPEC_EXT)?
     };
 
     if paths.is_empty() {
