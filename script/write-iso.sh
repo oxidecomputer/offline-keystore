@@ -1,4 +1,6 @@
-#!/usr/bin/sh
+#!/usr/bin/env bash
+
+set -euo pipefail
 
 # This script expects a directory name / path as a single positional
 # parameter. The contents of this directory are turned into an ISO and
@@ -11,7 +13,7 @@ command_on_path mkisofs
 command_on_path cdrecord
 
 DIR="$1"
-if [ ! -e $DIR -o ! -d $DIR ]; then
+if [[ ! -e "$DIR" ]] || [[ ! -d "$DIR" ]]; then
     >&2 echo "ERROR: path provided is not a directory: $DIR"
     exit 1
 fi
@@ -26,7 +28,6 @@ echo "INFO: generating iso from directory \"$DIR\""
 fail_with_msg \
     "failed to create ISO from directory: $DIR" \
     mkisofs -r -iso-level 4 -o "$ISO" "$DIR"
-[ $? -ne 0 ] && exit 1
 
 if [ ! -f "$ISO" ]; then
     >&2 echo "ERROR: failed to create iso, not a file: \"$ISO\""
@@ -39,8 +40,8 @@ echo "INFO: ISO has hash sha256-$ISO_HASH"
 # cdrecord is noisy on both stdio and stderr. We can't redirect stderr while
 # using 'fail_with_msg' so we do it manually.
 echo "INFO: writing ISO to device: \"$CD_DEV\""
-cdrecord -silent -data $ISO dev=$CD_DEV > /dev/null 2>&1
-if [ $? -ne 0 ]; then
+
+if ! cdrecord -silent -data "$ISO" dev="$CD_DEV" > /dev/null 2>&1; then
     >&2 echo "ERROR: failed writing ISO to \"$CD_DEV\""
     exit 1
 fi
