@@ -1,6 +1,6 @@
-#!/usr/bin/sh
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 # This script calculates the hash of the ISO FS on a CD or DVD.
 

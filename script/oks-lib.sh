@@ -1,10 +1,11 @@
+#!/usr/bin/env bash
 # functions common to oks scripts
 
 CD_DEV=/dev/cdrom
 
 # check that a given command is on PATH, if not exit 1
 command_on_path() {
-    if ! command -v $1 &> /dev/null; then
+    if ! command -v "$1" &> /dev/null; then
         >&2 echo "ERROR: missing required command: $1"
         exit 1
     fi
@@ -24,8 +25,7 @@ fail_with_msg() {
     shift
 
     # catching error output in a temp file would be nice
-    $@
-    if [ $? -ne 0 ]; then
+    if ! "$@"; then
         >&2 echo "ERROR: $MSG"
         exit 1
     fi
@@ -39,14 +39,14 @@ cd_sha256() {
     ISOINFO_OUT=$TMP_DIR/isoinfo.log
     fail_with_msg \
         "failed to get isoinfo for device: \"$DEVICE\"" \
-        isoinfo -d -i $DEVICE > $ISOINFO_OUT
+        isoinfo -d -i "$DEVICE" > "$ISOINFO_OUT"
     
     BLOCK_SIZE=$(sed -n 's/^Logical block size is: \([0-9]\+\)/\1/p' \
-        $ISOINFO_OUT)
+        "$ISOINFO_OUT")
     BLOCK_COUNT=$(sed -n 's/^Volume size is: \([0-9]\+\)/\1/p' \
-        $ISOINFO_OUT)
+        "$ISOINFO_OUT")
     
-    dd if=$CD_DEV bs=$BLOCK_SIZE count=$BLOCK_COUNT status=none \
+    dd if=$CD_DEV bs="$BLOCK_SIZE" count="$BLOCK_COUNT" status=none \
         | sha256sum \
         | awk '{print $1}'
 }
