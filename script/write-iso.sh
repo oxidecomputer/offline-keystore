@@ -12,6 +12,11 @@ set -euo pipefail
 command_on_path mkisofs
 command_on_path cdrecord
 
+if [[ $# -lt 1 ]]; then
+    echo "USAGE: write-iso.sh <dir>"
+    exit 1
+fi
+
 DIR="$1"
 if [[ ! -e "$DIR" ]] || [[ ! -d "$DIR" ]]; then
     >&2 echo "ERROR: path provided is not a directory: $DIR"
