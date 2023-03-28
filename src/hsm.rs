@@ -64,7 +64,7 @@ pub fn backup<P: AsRef<Path>>(
     kind: Type,
     file: P,
 ) -> Result<()> {
-    info!("backing up object with id: {:#06x} and type: {}", id, kind);
+    info!("Backing up object with id: {:#06x} and type: {}", id, kind);
     let message = client.export_wrapped(WRAP_ID, kind, id)?;
     debug!("Got Message: {:?}", &message);
 
@@ -83,18 +83,18 @@ pub fn backup<P: AsRef<Path>>(
         file.as_ref().to_path_buf()
     };
 
-    info!("writing backup to: \"{}\"", path.display());
+    info!("Writing backup to: \"{}\"", path.display());
     Ok(fs::write(path, json)?)
 }
 
 pub fn delete(client: &Client, id: Id, kind: Type) -> Result<()> {
-    info!("deleting object with id: {} type: {}", &id, &kind);
+    info!("Deleting object with id: {} type: {}", &id, &kind);
     Ok(client.delete_object(id, kind)?)
 }
 
 pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
     let file = file.as_ref();
-    info!("reading backup from \"{}\"", file.display());
+    info!("Reading backup from \"{}\"", file.display());
     let paths = if file.is_file() {
         vec![file.to_path_buf()]
     } else {
@@ -144,7 +144,7 @@ pub fn generate(
         let spec = KeySpec::from_str(&json)?;
         debug!("KeySpec from {}: {:#?}", path.display(), spec);
 
-        info!("generating key for spec: {:?}", path);
+        info!("Generating key for spec: {:?}", path);
         let id = generate_keyspec(client, &spec, out_dir)?;
         backup(client, id, Type::AsymmetricKey, state_dir)?;
     }
@@ -255,33 +255,10 @@ pub fn initialize(
 ) -> Result<()> {
     // get 32 bytes from YubiHSM PRNG
     // TODO: zeroize
+    info!("Generating backup / wrap key from YubiHSM PRNG");
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
-    info!("got {} bytes from YubiHSM PRNG", KEY_LEN);
 
-    // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
-    let id = client
-        .put_wrap_key::<Vec<u8>>(
-            ID,
-            Label::from_bytes(LABEL.as_bytes())?,
-            DOMAIN,
-            CAPS,
-            DELEGATED_CAPS,
-            ALG,
-            wrap_key.clone(),
-        )
-        .with_context(|| {
-            format!(
-                "Failed to put wrap key into YubiHSM domains {:?} with id {}",
-                DOMAIN, ID
-            )
-        })?;
-    debug!("wrap id: {}", id);
-    // Future commands assume that our wrap key has id 1. If we got a wrap
-    // key with any other id the HSM isn't in the state we think it is.
-    assert_eq!(id, WRAP_ID);
-
-    personalize(client, WRAP_ID, state_dir, out_dir)?;
-
+    info!("Splitting wrap key into {} shares.", SHARES);
     let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
         .with_context(|| {
         format!(
@@ -291,7 +268,7 @@ pub fn initialize(
     })?;
 
     println!(
-        "WARNING: The wrap / backup key has been created and stored in the\n\
+        "\nWARNING: The wrap / backup key has been created and stored in the\n\
         YubiHSM. It will now be split into {} key shares and each share\n\
         will be individually written to {}. Before each keyshare is\n\
         printed, the operator will be prompted to ensure the appropriate key\n\
@@ -325,6 +302,31 @@ pub fn initialize(
         wait_for_line();
     }
 
+    // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
+    info!("Storing wrap key in YubiHSM.");
+    let id = client
+        .put_wrap_key::<Vec<u8>>(
+            ID,
+            Label::from_bytes(LABEL.as_bytes())?,
+            DOMAIN,
+            CAPS,
+            DELEGATED_CAPS,
+            ALG,
+            wrap_key,
+        )
+        .with_context(|| {
+            format!(
+                "Failed to put wrap key into YubiHSM domains {:?} with id {}",
+                DOMAIN, ID
+            )
+        })?;
+    debug!("wrap id: {}", id);
+    // Future commands assume that our wrap key has id 1. If we got a wrap
+    // key with any other id the HSM isn't in the state we think it is.
+    assert_eq!(id, WRAP_ID);
+
+    personalize(client, WRAP_ID, state_dir, out_dir)?;
+
     Ok(())
 }
 
@@ -343,6 +345,7 @@ fn personalize(
     state_dir: &Path,
     out_dir: &Path,
 ) -> Result<()> {
+    info!("Setting up new auth credential.");
     debug!(
         "personalizing with wrap key {} and out_dir {}",
         wrap_id,
@@ -378,14 +381,16 @@ fn personalize(
         auth_key,
     )?;
 
-    debug!("deleting default auth key");
+    info!("Backing up new auth credential.");
+    backup(client, AUTH_ID, Type::AuthenticationKey, state_dir)?;
+
+    info!("Deleting default auth key.");
     client.delete_object(
         DEFAULT_AUTHENTICATION_KEY_ID,
         Type::AuthenticationKey,
     )?;
 
-    backup(client, AUTH_ID, Type::AuthenticationKey, state_dir)?;
-
+    info!("Collecting YubiHSM attestation cert.");
     dump_attest_cert(client, out_dir)?;
 
     Ok(())
