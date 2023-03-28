@@ -4,7 +4,7 @@
 
 use clap::Parser;
 use oks::config::CsrSpec;
-use std::io;
+use std::io::{self, Read};
 use yubihsm::object::Label;
 
 #[derive(Parser, Debug)]
@@ -17,8 +17,10 @@ struct Config {
 
 fn main() -> anyhow::Result<()> {
     let cfg = Config::parse();
+    let mut buf = Vec::new();
 
-    let csr = io::read_to_string(io::stdin())?;
+    io::stdin().read_to_end(&mut buf)?;
+    let csr = String::from_utf8(buf)?;
 
     let csr_spec = CsrSpec {
         label: cfg.label,
