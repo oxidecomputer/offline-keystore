@@ -293,9 +293,9 @@ fn main() -> Result<()> {
                     oks::hsm::restore_wrap(&client)?;
                     info!(
                         "Restoring keys from backups in: \"{}\"",
-                        &args.public.display()
+                        &args.state.display()
                     );
-                    oks::hsm::restore(&client, &args.public)?;
+                    oks::hsm::restore(&client, &args.state)?;
                     info!("Deleting default authentication key");
                     oks::hsm::delete(&client, 1, Type::AuthenticationKey)
                 }
