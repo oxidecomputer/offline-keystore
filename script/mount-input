@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+mkdir input
+mount -o ro /dev/cdrom input
