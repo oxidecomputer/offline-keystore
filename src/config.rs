@@ -91,7 +91,7 @@ impl From<OksCapability> for Capability {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Hash {
     Sha256,
     Sha384,
@@ -99,7 +99,7 @@ pub enum Hash {
 
 /// Values in this enum are mapped to OpenSSL config sections for v3 extensions.
 /// All certs issued by the OKS are assumed to be intermediate CAs.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Purpose {
     ProductionCodeSigningCA,
     DevelopmentCodeSigningCA,
