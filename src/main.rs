@@ -138,6 +138,9 @@ enum HsmCommand {
 
     /// Restore a previously split aes256-ccm-wrap key
     RestoreAll,
+
+    /// Get serial number from YubiHSM and dump to console.
+    SerialNumber,
 }
 
 // 2 minute to support RSA4K key generation
@@ -226,7 +229,8 @@ fn main() -> Result<()> {
                 }
                 None => match command {
                     HsmCommand::Initialize { print_dev: _ }
-                    | HsmCommand::RestoreAll => (1, "password".to_string()),
+                    | HsmCommand::RestoreAll
+                    | HsmCommand::SerialNumber => (1, "password".to_string()),
                     _ => (
                         2,
                         rpassword::prompt_password("Enter YubiHSM Password: ")?,
@@ -299,6 +303,7 @@ fn main() -> Result<()> {
                     info!("Deleting default authentication key");
                     oks::hsm::delete(&client, 1, Type::AuthenticationKey)
                 }
+                HsmCommand::SerialNumber => oks::hsm::dump_sn(&client),
             }
         }
     }

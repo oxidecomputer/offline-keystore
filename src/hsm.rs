@@ -197,6 +197,13 @@ pub fn dump_info(client: &Client) -> Result<()> {
     Ok(())
 }
 
+pub fn dump_sn(client: &Client) -> Result<()> {
+    let info = client.device_info()?;
+    println!("{}", info.serial_number);
+
+    Ok(())
+}
+
 pub fn reset(client: &Client) -> Result<()> {
     let info = client.device_info()?;
     info!("resetting device with SN: {}", info.serial_number);
