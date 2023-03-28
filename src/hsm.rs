@@ -5,6 +5,9 @@
 use anyhow::{Context, Result};
 use hex::ToHex;
 use log::{debug, error, info};
+use p256::elliptic_curve::PrimeField;
+use p256::{NonZeroScalar, Scalar, SecretKey};
+use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
 use std::{
     fs::{self, OpenOptions},
@@ -13,6 +16,7 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
+use vsss_rs::{Shamir, Share};
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
@@ -30,14 +34,15 @@ const CAPS: Capability = Capability::all();
 const DELEGATED_CAPS: Capability = Capability::all();
 const DOMAIN: Domain = Domain::all();
 const ID: Id = 0x1;
+const SEED_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const LABEL: &str = "backup";
 
 const PASSWD_PROMPT: &str = "Enter new HSM password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
-const SHARES: u8 = 5;
-const THRESHOLD: u8 = 3;
+const SHARES: usize = 5;
+const THRESHOLD: usize = 3;
 sa::const_assert!(THRESHOLD <= SHARES);
 
 const BACKUP_EXT: &str = ".backup.json";
@@ -48,6 +53,8 @@ pub enum HsmError {
     BadSpecDirectory,
     #[error("failed conversion from YubiHSM Domain")]
     BadDomain,
+    #[error("failed to convert use input into a key share")]
+    BadKeyShare,
     #[error("failed conversion from YubiHSM Label")]
     BadLabel,
     #[error("Invalid purpose for root CA key")]
@@ -101,7 +108,12 @@ pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
         config::files_with_ext(file, BACKUP_EXT)?
     };
 
+    if paths.is_empty() {
+        return Err(anyhow::anyhow!("backup directory is empty"));
+    }
+
     for path in paths {
+        info!("Restoring wrapped backup from file: {}", path.display());
         let json = fs::read_to_string(path)?;
         debug!("backup json: {}", json);
 
@@ -109,7 +121,10 @@ pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
         debug!("deserialized message: {:?}", &message);
 
         let handle = client.import_wrapped(WRAP_ID, message)?;
-        info!("import successful: {:?}", &handle);
+        info!(
+            "Imported {} key with object id {}.",
+            handle.object_type, handle.object_id
+        );
     }
 
     Ok(())
@@ -199,36 +214,49 @@ pub fn reset(client: &Client) -> Result<()> {
 /// uses these shares to reconstitute the wrap key. This wrap key can then
 /// be used to restore previously backed up / export wrapped keys.
 pub fn restore_wrap(client: &Client) -> Result<()> {
-    let mut shares: Vec<String> = Vec::new();
+    let mut shares: Vec<[u8; KEY_LEN + 1]> = Vec::new();
 
     for i in 1..=THRESHOLD {
         print!("Enter share[{}]: ", i);
         io::stdout().flush()?;
-        shares.push(io::stdin().lines().next().unwrap().unwrap());
+        shares.push(
+            hex::decode(io::stdin().lines().next().unwrap().unwrap())?
+                .try_into()
+                .map_err(|_| HsmError::BadKeyShare)?,
+        );
     }
 
     for (i, share) in shares.iter().enumerate() {
-        debug!("share[{}]: {}", i, share);
+        debug!("share[{}]: {}", i, share.encode_hex::<String>());
     }
 
-    let wrap_key =
-        rusty_secrets::recover_secret(shares).unwrap_or_else(|err| {
-            println!("Unable to recover key: {}", err);
-            std::process::exit(1);
-        });
+    let shares: Vec<Share<{ KEY_LEN + 1 }>> = shares
+        .iter()
+        .map(|s| Share::try_from(&s[..]).unwrap())
+        .collect();
+    let scalar = Shamir::<THRESHOLD, SHARES>::combine_shares::<
+        Scalar,
+        { KEY_LEN + 1 },
+    >(&shares);
+    let scalar = scalar.map_err(|e: vsss_rs::Error| {
+        anyhow::anyhow!("Error combining key shares: {:?}", e)
+    })?;
+    // from_repr deals in CtOptions, not regular Options?
+    let nz_scalar = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
+    let wrap_key = SecretKey::from(nz_scalar);
 
-    debug!("restored wrap key: {}", wrap_key.encode_hex::<String>());
+    debug!("restored wrap key: {:?}", wrap_key.to_be_bytes());
 
     // put restored wrap key the YubiHSM as an Aes256Ccm wrap key
     let id = client
-        .put_wrap_key(
+        .put_wrap_key::<[u8; KEY_LEN]>(
             ID,
             Label::from_bytes(LABEL.as_bytes())?,
             DOMAIN,
             CAPS,
             DELEGATED_CAPS,
             ALG,
-            wrap_key,
+            wrap_key.to_be_bytes().into(),
         )
         .with_context(|| {
             format!(
@@ -253,18 +281,38 @@ pub fn initialize(
     out_dir: &Path,
     print_dev: &Path,
 ) -> Result<()> {
+    info!(
+        "Generating wrap / backup key from HSM PRNG with label: \"{}\"",
+        LABEL.to_string()
+    );
     // get 32 bytes from YubiHSM PRNG
     // TODO: zeroize
-    info!("Generating backup / wrap key from YubiHSM PRNG");
     let wrap_key = client.get_pseudo_random(KEY_LEN)?;
+    let rng_seed = client.get_pseudo_random(SEED_LEN)?;
+    let rng_seed: [u8; SEED_LEN] =
+        rng_seed.try_into().map_err(|v: Vec<u8>| {
+            anyhow::anyhow!(
+                "Expected vec with {} elements, got {}",
+                SEED_LEN,
+                v.len()
+            )
+        })?;
+    let mut rng = ChaCha20Rng::from_seed(rng_seed);
 
     info!("Splitting wrap key into {} shares.", SHARES);
-    let shares = rusty_secrets::generate_shares(THRESHOLD, SHARES, &wrap_key)
-        .with_context(|| {
-        format!(
-            "Failed to split secret into {} shares with threashold {}",
-            SHARES, THRESHOLD
-        )
+    let wrap_key = SecretKey::from_be_bytes(&wrap_key).unwrap();
+    debug!("wrap key: {:?}", wrap_key.to_be_bytes());
+
+    let nzs = wrap_key.to_nonzero_scalar();
+    // we add a byte to the key length per instructions from the library:
+    // https://docs.rs/vsss-rs/2.7.1/src/vsss_rs/lib.rs.html#34
+    let shares = Shamir::<THRESHOLD, SHARES>::split_secret::<
+        Scalar,
+        ChaCha20Rng,
+        { KEY_LEN + 1 },
+    >(*nzs.as_ref(), &mut rng)
+    .map_err(|e: vsss_rs::Error| {
+        anyhow::anyhow!("Error splitting wrap key: {:?}", e)
     })?;
 
     println!(
@@ -294,7 +342,9 @@ pub fn initialize(
         );
         wait_for_line();
 
-        print_file.write_all(format!("{}\n", share).as_bytes())?;
+        print_file.write_all(
+            format!("{}\n", share.encode_hex::<String>()).as_bytes(),
+        )?;
         println!(
             "When key custodian {} has collected their key share, press enter",
             share_num,
@@ -305,14 +355,14 @@ pub fn initialize(
     // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
     info!("Storing wrap key in YubiHSM.");
     let id = client
-        .put_wrap_key::<Vec<u8>>(
+        .put_wrap_key::<[u8; 32]>(
             ID,
             Label::from_bytes(LABEL.as_bytes())?,
             DOMAIN,
             CAPS,
             DELEGATED_CAPS,
             ALG,
-            wrap_key,
+            wrap_key.to_be_bytes().into(),
         )
         .with_context(|| {
             format!(
