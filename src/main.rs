@@ -25,11 +25,11 @@ struct Args {
     verbose: bool,
 
     /// Directory where we put certs and attestations
-    #[clap(long, env, default_value = "oks-public")]
-    public: PathBuf,
+    #[clap(long, env, default_value = "output")]
+    output: PathBuf,
 
     /// Directory where we put KeySpec, CA state and backups
-    #[clap(long, env, default_value = "oks-state")]
+    #[clap(long, env, default_value = "ca-state")]
     state: PathBuf,
 
     /// subcommands
@@ -155,12 +155,12 @@ fn create_required_dirs(args: &Args) -> Result<()> {
         } => match command {
             HsmCommand::Info | HsmCommand::Reset => (),
             _ => {
-                make_dir(&args.public)?;
+                make_dir(&args.output)?;
                 make_dir(&args.state)?;
             }
         },
         Command::Ca { command: _ } => {
-            make_dir(&args.public)?;
+            make_dir(&args.output)?;
             make_dir(&args.state)?;
         }
     }
@@ -170,7 +170,7 @@ fn create_required_dirs(args: &Args) -> Result<()> {
 
 fn make_dir(path: &Path) -> Result<()> {
     if !path.try_exists()? {
-        // public directory doesn't exist, create it
+        // output directory doesn't exist, create it
         warn!(
             "required directory does not exist, creating: \"{}\"",
             path.display()
@@ -209,10 +209,10 @@ fn main() -> Result<()> {
                 &key_spec,
                 &pkcs11_path,
                 &args.state,
-                &args.public,
+                &args.output,
             ),
             CaCommand::Sign { csr_spec } => {
-                oks::ca::sign(&csr_spec, &args.state, &args.public)
+                oks::ca::sign(&csr_spec, &args.state, &args.output)
             }
         },
         Command::Hsm { auth_id, command } => {
@@ -274,20 +274,20 @@ fn main() -> Result<()> {
                 HsmCommand::Initialize { print_dev } => oks::hsm::initialize(
                     &client,
                     &args.state,
-                    &args.public,
+                    &args.output,
                     &print_dev,
                 ),
                 HsmCommand::Generate { key_spec } => oks::hsm::generate(
                     &client,
                     &key_spec,
                     &args.state,
-                    &args.public,
+                    &args.output,
                 ),
                 HsmCommand::Reset => oks::hsm::reset(&client),
                 HsmCommand::Restore { file } => {
                     let file = match file {
                         Some(p) => p,
-                        None => args.public,
+                        None => args.output,
                     };
                     oks::hsm::restore(&client, file)
                 }
