@@ -533,7 +533,7 @@ fn print_share(
         .enumerate()
     {
         print_file.write_all(&['\t' as u32 as u8])?;
-        print_file.write_all(chunk)?;
+        print_file.write_all(chunk.encode_hex::<String>().as_bytes())?;
         if i % 3 == 3 {
             print_file.write_all(&[LF])?;
         }
