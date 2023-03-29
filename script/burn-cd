@@ -27,7 +27,7 @@ ISO=$TMP_DIR/temp.iso
 echo "INFO: generating iso from directory \"$DIR\""
 fail_with_msg \
     "failed to create ISO from directory: $DIR" \
-    mkisofs -r -iso-level 4 -o "$ISO" "$DIR"
+    mkisofs -r -iso-level 4 -o "$ISO" "$DIR" > /dev/null
 
 if [ ! -f "$ISO" ]; then
     >&2 echo "ERROR: failed to create iso, not a file: \"$ISO\""
@@ -46,15 +46,15 @@ if ! cdrecord -silent -data "$ISO" dev="$CD_DEV" > /dev/null 2>&1; then
     exit 1
 fi
 
-# NOTE: accessing the cdrom to hash it immediately after burning it fails in
-# testing
-
-exit 0
-
-# ensure hash of ISO matches hash of CD burned
-CDROM_HASH=$(cd_sha256 "$CD_DEV" "$TMP_DIR")
-[ $? -ne 0 ] && exit 1
-if [ "$ISO_HASH" != "$CDROM_HASH" ]; then
-    >&2 echo "ERROR: hash mismatch ... something ain't right"
+if ! eject "$CD_DEV"; then
+    >&2 echo "ERROR: failed to eject \"$CD_DEV\", press the button instead?"
     exit 1
 fi
+
+# NOTE: This would be a good place to hash the cdrom to ensure the hash of
+# the ISO and the CD burned match. Accessing the cdrom immediately after
+# burning it fails in testing however. The alternative is to eject the CD
+# immediately after it's burned, then have the user reinsert the CD to
+# calculate the hash again.
+
+exit 0
