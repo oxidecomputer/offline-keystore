@@ -85,9 +85,9 @@ rand_serial                 = no
 unique_subject              = yes
 
 [ policy_match ]
-countryName                 = optional
+countryName                 = supplied
 stateOrProvinceName         = optional
-organizationName            = optional
+organizationName            = supplied
 organizationalUnitName      = optional
 commonName                  = supplied
 emailAddress                = optional
@@ -96,31 +96,33 @@ emailAddress                = optional
 default_md                  = {hash:?}
 string_mask                 = utf8only
 
-[ v3_code_signing_prod_ca ]
+[ v3_code_signing_rel_ca ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
+certificatePolicies         = critical,rotCodeSigningReleasePolicy
 
-[ v3_code_signing_prod ]
+[ v3_code_signing_rel ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:false
 keyUsage                    = critical, digitalSignature
+certificatePolicies         = critical,rotCodeSigningReleasePolicy
 
 [ v3_code_signing_dev_ca ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
-certificatePolicies         = critical,development-device-only
+certificatePolicies         = critical,rotCodeSigningDevelopmentPolicy
 
 [ v3_code_signing_dev ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:false
 keyUsage                    = critical, digitalSignature
-certificatePolicies         = critical,development-device-only
+certificatePolicies         = critical,rotCodeSigningDevelopmentPolicy
 
 [ v3_identity ]
 subjectKeyIdentifier        = hash
@@ -129,7 +131,10 @@ basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
 
 [ OIDs ]
-development-device-only = 1.3.6.1.4.1.57551.1
+# https://github.com/oxidecomputer/oana#asn1-object-identifiers
+rotCodeSigningReleasePolicy = 1.3.6.1.4.1.57551.1.1
+rotCodeSigningDevelopmentPolicy = 1.3.6.1.4.1.57551.1.2
+
 "#
     };
 }
@@ -254,7 +259,7 @@ fn initialize_keyspec(
     // this makes me think we need different types for this:
     // one for the CA keys, one for the children we sign
     match spec.purpose {
-        Purpose::ProductionCodeSigningCA
+        Purpose::ReleaseCodeSigningCA
         | Purpose::DevelopmentCodeSigningCA
         | Purpose::Identity => (),
         _ => return Err(CaError::BadPurpose.into()),
@@ -291,7 +296,10 @@ fn initialize_keyspec(
         .arg("openssl.cnf")
         .arg("-new")
         .arg("-subj")
-        .arg(format!("/CN={}/", spec.common_name))
+        .arg(format!(
+            "/C=US/O=Oxide Computer Company/CN={}/",
+            spec.common_name
+        ))
         .arg("-engine")
         .arg("pkcs11")
         .arg("-keyform")
@@ -426,7 +434,7 @@ pub fn sign_csrspec(
     // one for the CA keys, one for the children we sign
     // map purpose of CA key to key associated with CSR
     let purpose = match key_spec.purpose {
-        Purpose::ProductionCodeSigningCA => Purpose::ProductionCodeSigning,
+        Purpose::ReleaseCodeSigningCA => Purpose::ReleaseCodeSigning,
         Purpose::DevelopmentCodeSigningCA => Purpose::DevelopmentCodeSigning,
         Purpose::Identity => Purpose::Identity,
         _ => return Err(CaError::BadPurpose.into()),

@@ -1,0 +1,10 @@
+{
+    "common_name": "Gimlet RoT Code Signing Staging Development Root A",
+    "id": 2,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha384",
+    "label":"gimlet-rot-code-signing-dev-a",
+    "purpose":"DevelopmentCodeSigningCA"
+}
