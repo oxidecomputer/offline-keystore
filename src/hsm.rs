@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use hex::ToHex;
 use log::{debug, error, info};
 use p256::elliptic_curve::PrimeField;
-use p256::{NonZeroScalar, Scalar, SecretKey};
+use p256::{NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
 use std::fs::File;
@@ -17,7 +17,7 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
-use vsss_rs::{Shamir, Share};
+use vsss_rs::{Feldman, Share};
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
@@ -242,7 +242,7 @@ pub fn restore_wrap(client: &Client) -> Result<()> {
         .iter()
         .map(|s| Share::try_from(&s[..]).unwrap())
         .collect();
-    let scalar = Shamir::<THRESHOLD, SHARES>::combine_shares::<
+    let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
         Scalar,
         { KEY_LEN + 1 },
     >(&shares);
@@ -314,11 +314,12 @@ pub fn initialize(
     let nzs = wrap_key.to_nonzero_scalar();
     // we add a byte to the key length per instructions from the library:
     // https://docs.rs/vsss-rs/2.7.1/src/vsss_rs/lib.rs.html#34
-    let shares = Shamir::<THRESHOLD, SHARES>::split_secret::<
+    let (shares, _verifier) = Feldman::<THRESHOLD, SHARES>::split_secret::<
         Scalar,
+        ProjectivePoint,
         ChaCha20Rng,
         { KEY_LEN + 1 },
-    >(*nzs.as_ref(), &mut rng)
+    >(*nzs.as_ref(), None, &mut rng)
     .map_err(|e: vsss_rs::Error| {
         anyhow::anyhow!("Error splitting wrap key: {:?}", e)
     })?;
