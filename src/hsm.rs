@@ -9,6 +9,7 @@ use p256::elliptic_curve::PrimeField;
 use p256::{NonZeroScalar, Scalar, SecretKey};
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
+use std::fs::File;
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
@@ -349,9 +350,7 @@ pub fn initialize(
         );
         wait_for_line();
 
-        print_file.write_all(
-            format!("{}\n", share.encode_hex::<String>()).as_bytes(),
-        )?;
+        print_share(&mut print_file, i, SHARES, share.as_ref())?;
         println!(
             "When key custodian {} has collected their key share, press enter",
             share_num,
@@ -480,4 +479,66 @@ fn are_you_sure() -> Result<bool> {
     debug!("got: \"{}\"", buffer);
 
     Ok(buffer == "y")
+}
+
+#[rustfmt::skip]
+fn print_share(
+    print_file: &mut File,
+    share_idx: usize,
+    share_count: usize,
+    share_data: &[u8],
+) -> Result<()> {
+    const ESC: u8 = 0x1b;
+    const LF: u8 = 0x0a;
+    const FF: u8 = 0x0c;
+
+    print_file.write_all(&[
+        ESC, '@' as u32 as u8, // Initialize Printer
+        ESC, 'x' as u32 as u8, 1, // Select NLQ mode
+        ESC, 'k' as u32 as u8, 1, // Select San Serif font
+        ESC, '$' as u32 as u8, 127, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, 'E' as u32 as u8, // Select Bold
+    ])?;
+    print_file.write_all("Oxide Offline Keystore".as_bytes())?;
+    print_file.write_all(&[
+        LF,
+        ESC, 'F' as u32 as u8, // Deselect Bold
+        ESC, '$' as u32 as u8, 127, 0, // Move to absolute horizontal position (0*256)+127
+    ])?;
+    print_file.write_all("Recovery Key Share ".as_bytes())?;
+    print_file.write_all(&[
+        ESC, '-' as u32 as u8, 1, // Select underscore
+    ])?;
+    print_file.write_all(share_idx.to_string().as_bytes())?;
+    print_file.write_all(&[
+        ESC, '-' as u32 as u8, 0, // Deselect underscore
+    ])?;
+    print_file.write_all(" of ".as_bytes())?;
+    print_file.write_all(&[
+        ESC, '-' as u32 as u8, 1, // Select underscore
+    ])?;
+    print_file.write_all(share_count.to_string().as_bytes())?;
+    print_file.write_all(&[
+        ESC, '-' as u32 as u8, 0, // Deselect underscore
+        LF,
+        LF,
+        LF,
+        ESC, 'D' as u32 as u8, 8, 20, 32, 44, 0, // Set horizontal tab stops
+    ])?;
+
+    for (i, chunk) in share_data
+        .encode_hex::<String>()
+        .as_bytes()
+        .chunks(8)
+        .enumerate()
+    {
+        print_file.write_all(&['\t' as u32 as u8])?;
+        print_file.write_all(chunk)?;
+        if i % 3 == 3 {
+            print_file.write_all(&[LF])?;
+        }
+    }
+
+    print_file.write_all(&[FF])?;
+    Ok(())
 }
