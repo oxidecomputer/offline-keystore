@@ -1,0 +1,10 @@
+{
+    "common_name": "Sidecar RoT Code Signing Staging Development Root B",
+    "id": 8,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha384",
+    "label":"sidecar-rot-code-signing-dev-b",
+    "purpose":"DevelopmentCodeSigningCA"
+}

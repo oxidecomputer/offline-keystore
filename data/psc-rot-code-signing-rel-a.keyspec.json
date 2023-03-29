@@ -1,0 +1,10 @@
+{
+    "common_name": "PSC RoT Code Signing Staging Release Root A",
+    "id": 9,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha384",
+    "label":"psc-rot-code-signing-rel-a",
+    "purpose":"ReleaseCodeSigningCA"
+}
