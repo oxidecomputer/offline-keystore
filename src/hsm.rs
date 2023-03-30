@@ -60,6 +60,10 @@ pub enum HsmError {
     BadLabel,
     #[error("Invalid purpose for root CA key")]
     BadPurpose,
+    #[error("Failed to combined shares into wrap key.")]
+    CombineKeyFailed { e: vsss_rs::Error },
+    #[error("Failed to split wrap key into shares.")]
+    SplitKeyFailed { e: vsss_rs::Error },
     #[error("your yubihms is broke")]
     Version,
 }
@@ -245,10 +249,9 @@ pub fn restore_wrap(client: &Client) -> Result<()> {
     let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
         Scalar,
         { KEY_LEN + 1 },
-    >(&shares);
-    let scalar = scalar.map_err(|e: vsss_rs::Error| {
-        anyhow::anyhow!("Error combining key shares: {:?}", e)
-    })?;
+    >(&shares)
+    .map_err(|e| HsmError::CombineKeyFailed { e })?;
+
     // from_repr deals in CtOptions, not regular Options?
     let nz_scalar = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
     let wrap_key = SecretKey::from(nz_scalar);
@@ -314,15 +317,13 @@ pub fn initialize(
     let nzs = wrap_key.to_nonzero_scalar();
     // we add a byte to the key length per instructions from the library:
     // https://docs.rs/vsss-rs/2.7.1/src/vsss_rs/lib.rs.html#34
-    let (shares, _verifier) = Feldman::<THRESHOLD, SHARES>::split_secret::<
+    let (shares, _) = Feldman::<THRESHOLD, SHARES>::split_secret::<
         Scalar,
         ProjectivePoint,
         ChaCha20Rng,
         { KEY_LEN + 1 },
     >(*nzs.as_ref(), None, &mut rng)
-    .map_err(|e: vsss_rs::Error| {
-        anyhow::anyhow!("Error splitting wrap key: {:?}", e)
-    })?;
+    .map_err(|e| HsmError::SplitKeyFailed { e })?;
 
     println!(
         "\nWARNING: The wrap / backup key has been created and stored in the\n\
