@@ -1,9 +1,9 @@
-name: test suite
+name: linters
 on: [push, pull_request]
 
 jobs:
   clippy:
-    name: cargo clippy
+    name: clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -15,18 +15,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libudev-dev
       - run: cargo clippy -- --deny warnings
-  test:
-    name: cargo test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.64.0
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libudev-dev
-      - run: cargo test --all-features
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
