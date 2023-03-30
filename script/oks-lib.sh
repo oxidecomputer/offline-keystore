@@ -17,18 +17,19 @@ command_on_path dd
 command_on_path sed
 command_on_path awk
 
-# Execute a command, if it fails display a message and exit 1.
-# The first parameter is an error message, everything after is passed
-# directly to the shell. All output from the command executed is discarded.
-fail_with_msg() {
-    local MSG=$1
-    shift
+# implement common error handling for commands executed
+fail_with_stderr() {
+    local ERR_LOG
+    ERR_LOG=$(mktemp)
 
-    # catching error output in a temp file would be nice
-    if ! "$@"; then
-        >&2 echo "ERROR: $MSG"
+    echo "executing \"$*\""
+    if ! "$@" 2> "$ERR_LOG"; then
+        >&2 echo "failed command: \"$*\"\nwith stderr:"
+        >&2 cat "$ERR_LOG"
+        rm "$ERR_LOG"
         exit 1
     fi
+    rm $ERR_LOG
 }
 
 cd_sha256() {
@@ -37,9 +38,7 @@ cd_sha256() {
 
     # get hash of iso we just burned
     ISOINFO_OUT=$TMP_DIR/isoinfo.log
-    fail_with_msg \
-        "failed to get isoinfo for device: \"$DEVICE\"" \
-        isoinfo -d -i "$DEVICE" > "$ISOINFO_OUT"
+    fail_with_stderr isoinfo -d -i "$DEVICE" > "$ISOINFO_OUT"
     
     BLOCK_SIZE=$(sed -n 's/^Logical block size is: \([0-9]\+\)/\1/p' \
         "$ISOINFO_OUT")
