@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 
-mkdir output
+set -eou pipefail
+
+mkdir -p output
 script --t=output/script-timing.log -a output/script.log
