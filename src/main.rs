@@ -144,7 +144,7 @@ enum HsmCommand {
 }
 
 // 2 minute to support RSA4K key generation
-const TIMEOUT_MS: u64 = 120000;
+const TIMEOUT_MS: u64 = 300000;
 
 // Create output directories for the commands that need them
 fn create_required_dirs(args: &Args) -> Result<()> {
