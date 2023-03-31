@@ -39,4 +39,6 @@ echo "INFO: ISO has hash sha256-$ISO_HASH"
 # using 'fail_with_msg' so we do it manually.
 echo "INFO: writing ISO to device: \"$CD_DEV\""
 
-fail_with_stderr cdrecord -data "$ISO" dev="$CD_DEV" > /dev/null
+fail_with_stderr \
+    cdrecord -eject -data "$ISO" dev="$CD_DEV" gracetime=0 timeout=1000 \
+    > /dev/null
