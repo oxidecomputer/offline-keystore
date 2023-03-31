@@ -325,13 +325,24 @@ pub fn initialize(
     let nzs = wrap_key.to_nonzero_scalar();
     // we add a byte to the key length per instructions from the library:
     // https://docs.rs/vsss-rs/2.7.1/src/vsss_rs/lib.rs.html#34
-    let (shares, _) = Feldman::<THRESHOLD, SHARES>::split_secret::<
+    let (shares, verifier) = Feldman::<THRESHOLD, SHARES>::split_secret::<
         Scalar,
         ProjectivePoint,
         ChaCha20Rng,
         { KEY_LEN + 1 },
     >(*nzs.as_ref(), None, &mut rng)
     .map_err(|e| HsmError::SplitKeyFailed { e })?;
+
+    let verifier_path = out_dir.join("verifier.json");
+    debug!(
+        "Serializing verifier as json to: {}",
+        verifier_path.display()
+    );
+
+    let verifier = serde_json::to_string(&verifier)?;
+    debug!("JSON: {}", verifier);
+
+    fs::write(verifier_path, verifier)?;
 
     println!(
         "\nWARNING: The wrap / backup key has been created and stored in the\n\
