@@ -5,7 +5,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Builder;
-use log::{info, warn, LevelFilter};
+use log::{info, LevelFilter};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -171,7 +171,7 @@ fn create_required_dirs(args: &Args) -> Result<()> {
 fn make_dir(path: &Path) -> Result<()> {
     if !path.try_exists()? {
         // output directory doesn't exist, create it
-        warn!(
+        info!(
             "required directory does not exist, creating: \"{}\"",
             path.display()
         );
