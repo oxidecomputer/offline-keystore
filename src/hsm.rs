@@ -494,6 +494,12 @@ pub fn print_share(
     const ESC: u8 = 0x1b;
     const LF: u8 = 0x0a;
     const FF: u8 = 0x0c;
+    const CR: u8 = 0x0d;
+
+    // ESC/P specification recommends sending CR before LF and FF.  The latter commands
+    // print the contents of the data buffer before their movement.  This can cause
+    // double printing (bolding) in certain situations.  Sending CR clears the data buffer
+    // without printing so sending it first avoids any double printing.
 
     print_file.write_all(&[
         ESC, '@' as u32 as u8, // Initialize Printer
@@ -504,7 +510,7 @@ pub fn print_share(
     ])?;
     print_file.write_all("Oxide Offline Keystore".as_bytes())?;
     print_file.write_all(&[
-        LF,
+        CR, LF,
         ESC, 'F' as u32 as u8, // Deselect Bold
         ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
     ])?;
@@ -523,8 +529,8 @@ pub fn print_share(
     print_file.write_all(share_count.to_string().as_bytes())?;
     print_file.write_all(&[
         ESC, '-' as u32 as u8, 0, // Deselect underscore
-        LF,
-        LF,
+        CR, LF,
+        CR, LF,
         ESC, 'D' as u32 as u8, 8, 20, 32, 44, 0, // Set horizontal tab stops
     ])?;
 
@@ -535,12 +541,12 @@ pub fn print_share(
         .enumerate()
     {
         if i % 4 == 0 {
-            print_file.write_all(&[LF])?;
+            print_file.write_all(&[CR, LF])?;
         }
         print_file.write_all(&['\t' as u32 as u8])?;
         print_file.write_all(chunk)?;
     }
 
-    print_file.write_all(&[FF])?;
+    print_file.write_all(&[CR, FF])?;
     Ok(())
 }
