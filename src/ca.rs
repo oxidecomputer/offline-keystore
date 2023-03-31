@@ -332,6 +332,7 @@ fn initialize_keyspec(
         .arg("ca")
         .arg("-batch")
         .arg("-selfsign")
+        .arg("-notext")
         .arg("-config")
         .arg("openssl.cnf")
         .arg("-engine")
@@ -486,6 +487,7 @@ pub fn sign_csrspec(
     let mut cmd = Command::new("openssl");
     cmd.arg("ca")
         .arg("-batch")
+        .arg("-notext")
         .arg("-config")
         .arg("openssl.cnf")
         .arg("-engine")
