@@ -7,6 +7,7 @@ use hex::ToHex;
 use log::{debug, error, info};
 use p256::elliptic_curve::PrimeField;
 use p256::{NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
+use pem_rfc7468::LineEnding;
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
 use std::fs::File;
@@ -190,6 +191,13 @@ pub fn generate_keyspec(
     // get yubihsm attestation
     info!("Getting attestation for key with label: {}", spec.label);
     let attest_cert = client.sign_attestation_certificate(spec.id, None)?;
+
+    let attest_cert = pem_rfc7468::encode_string(
+        "CERTIFICATE",
+        LineEnding::default(),
+        attest_cert.as_slice(),
+    )?;
+
     let attest_path = out_dir.join(format!("{}.attest.cert.pem", spec.label));
     fs::write(attest_path, attest_cert)?;
 
@@ -458,6 +466,13 @@ fn dump_attest_cert<P: AsRef<Path>>(client: &Client, out: P) -> Result<()> {
     // dump cert for default attesation key in hsm
     debug!("extracting attestation certificate");
     let attest_cert = client.get_opaque(0)?;
+
+    let attest_cert = pem_rfc7468::encode_string(
+        "CERTIFICATE",
+        LineEnding::default(),
+        &attest_cert,
+    )?;
+
     let attest_path = out.as_ref().join("hsm.attest.cert.pem");
 
     debug!("writing attestation cert to: {}", attest_path.display());
