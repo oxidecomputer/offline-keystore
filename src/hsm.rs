@@ -483,6 +483,7 @@ fn are_you_sure() -> Result<bool> {
     Ok(buffer == "y")
 }
 
+// Format a key share for printing with Epson ESC/P
 #[rustfmt::skip]
 pub fn print_share(
     print_file: &mut File,
@@ -498,20 +499,20 @@ pub fn print_share(
         ESC, '@' as u32 as u8, // Initialize Printer
         ESC, 'x' as u32 as u8, 1, // Select NLQ mode
         ESC, 'k' as u32 as u8, 1, // Select San Serif font
-        ESC, '$' as u32 as u8, 127, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
         ESC, 'E' as u32 as u8, // Select Bold
     ])?;
     print_file.write_all("Oxide Offline Keystore".as_bytes())?;
     print_file.write_all(&[
         LF,
         ESC, 'F' as u32 as u8, // Deselect Bold
-        ESC, '$' as u32 as u8, 127, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
     ])?;
     print_file.write_all("Recovery Key Share ".as_bytes())?;
     print_file.write_all(&[
         ESC, '-' as u32 as u8, 1, // Select underscore
     ])?;
-    print_file.write_all(share_idx.to_string().as_bytes())?;
+    print_file.write_all((share_idx + 1).to_string().as_bytes())?;
     print_file.write_all(&[
         ESC, '-' as u32 as u8, 0, // Deselect underscore
     ])?;
@@ -524,7 +525,6 @@ pub fn print_share(
         ESC, '-' as u32 as u8, 0, // Deselect underscore
         LF,
         LF,
-        LF,
         ESC, 'D' as u32 as u8, 8, 20, 32, 44, 0, // Set horizontal tab stops
     ])?;
 
@@ -534,11 +534,11 @@ pub fn print_share(
         .chunks(8)
         .enumerate()
     {
-        print_file.write_all(&['\t' as u32 as u8])?;
-        print_file.write_all(chunk.encode_hex::<String>().as_bytes())?;
-        if i % 3 == 3 {
+        if i % 4 == 0 {
             print_file.write_all(&[LF])?;
         }
+        print_file.write_all(&['\t' as u32 as u8])?;
+        print_file.write_all(chunk)?;
     }
 
     print_file.write_all(&[FF])?;
