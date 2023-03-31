@@ -484,7 +484,7 @@ fn are_you_sure() -> Result<bool> {
 }
 
 #[rustfmt::skip]
-fn print_share(
+pub fn print_share(
     print_file: &mut File,
     share_idx: usize,
     share_count: usize,
