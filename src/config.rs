@@ -207,7 +207,7 @@ impl CsrSpec {
     /// Return the JSON representation of CsrSpec
     pub fn json(&self) -> Result<String, serde_json::Error> {
         let oks_csr_spec = OksCsrSpec::from(self);
-        serde_json::to_string(&oks_csr_spec)
+        serde_json::to_string_pretty(&oks_csr_spec)
     }
 }
 
