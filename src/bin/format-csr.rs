@@ -4,7 +4,11 @@
 
 use clap::Parser;
 use oks::config::CsrSpec;
-use std::io::{self, Read};
+use std::{
+    fs,
+    io::{self, Read},
+    path::PathBuf,
+};
 use yubihsm::object::Label;
 
 #[derive(Parser, Debug)]
@@ -13,14 +17,23 @@ struct Config {
     /// Label for the entity to sign the CSR.
     #[clap(long)]
     label: Label,
+
+    /// CSR file. Read from stdin if omitted.
+    #[clap(long)]
+    csr: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let cfg = Config::parse();
     let mut buf = Vec::new();
 
-    io::stdin().read_to_end(&mut buf)?;
-    let csr = String::from_utf8(buf)?;
+    let csr = match cfg.csr {
+        Some(f) => fs::read_to_string(f)?,
+        None => {
+            io::stdin().read_to_end(&mut buf)?;
+            String::from_utf8(buf)?
+        }
+    };
 
     let csr_spec = CsrSpec {
         label: cfg.label,
