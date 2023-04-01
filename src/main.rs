@@ -9,7 +9,6 @@ use log::{info, LevelFilter};
 use std::{
     fs,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 use yubihsm::{
     object::{Id, Type},
@@ -80,43 +79,11 @@ enum CaCommand {
 
 #[derive(Subcommand, Debug, PartialEq)]
 enum HsmCommand {
-    /// Export an object identified under wrap.
-    Backup {
-        /// Object ID: https://developers.yubico.com/YubiHSM2/Concepts/Object_ID.html
-        #[clap(long, env)]
-        id: Id,
-
-        /// Object type: https://developers.yubico.com/YubiHSM2/Concepts/Object.html
-        #[clap(long, env)]
-        kind: String,
-
-        /// The file name where the backup is written. If omitted the backup
-        /// will be written to a file named according to the object label
-        /// with the suffix `backup.json`. If a path privided is a directory
-        /// the file will be created in it.
-        #[clap(long, env, default_value = "./")]
-        file: PathBuf,
-    },
-
-    /// Delete object.
-    Delete {
-        /// Object ID: https://developers.yubico.com/YubiHSM2/Concepts/Object_ID.html
-        #[clap(long, env)]
-        id: Id,
-
-        /// Object type: https://developers.yubico.com/YubiHSM2/Concepts/Object.html
-        #[clap(long, env)]
-        kind: String,
-    },
-
     /// Generate keys in YubiHSM from specification.
     Generate {
         #[clap(long, env, default_value = "input")]
         key_spec: PathBuf,
     },
-
-    /// Display device info.
-    Info,
 
     /// Initialize the YubiHSM for use in the OKS.
     Initialize {
@@ -124,20 +91,8 @@ enum HsmCommand {
         print_dev: PathBuf,
     },
 
-    /// Reset to factory defaults
-    Reset,
-
-    /// Restore a previously backed up key.
-    Restore {
-        /// An optional file name holding the wrapped object to be restored.
-        /// If omitted all files with the 'backup.json' extension within the
-        /// directory from '--public' will be restored
-        #[clap(long, env)]
-        file: Option<PathBuf>,
-    },
-
     /// Restore a previously split aes256-ccm-wrap key
-    RestoreAll,
+    Restore,
 
     /// Get serial number from YubiHSM and dump to console.
     SerialNumber,
@@ -145,28 +100,6 @@ enum HsmCommand {
 
 // 2 minute to support RSA4K key generation
 const TIMEOUT_MS: u64 = 300000;
-
-// Create output directories for the commands that need them
-fn create_required_dirs(args: &Args) -> Result<()> {
-    match &args.command {
-        Command::Hsm {
-            auth_id: _,
-            command,
-        } => match command {
-            HsmCommand::Info | HsmCommand::Reset => (),
-            _ => {
-                make_dir(&args.output)?;
-                make_dir(&args.state)?;
-            }
-        },
-        Command::Ca { command: _ } => {
-            make_dir(&args.output)?;
-            make_dir(&args.state)?;
-        }
-    }
-
-    Ok(())
-}
 
 fn make_dir(path: &Path) -> Result<()> {
     if !path.try_exists()? {
@@ -198,7 +131,8 @@ fn main() -> Result<()> {
     };
     builder.filter(None, level).init();
 
-    create_required_dirs(&args)?;
+    make_dir(&args.output)?;
+    make_dir(&args.state)?;
 
     match args.command {
         Command::Ca { command } => match command {
@@ -217,9 +151,9 @@ fn main() -> Result<()> {
         },
         Command::Hsm { auth_id, command } => {
             // Setup authentication credentials:
-            // For 'initialize' and 'restore-wrap' subcommands we assume the
-            // YubiHSM is in its default state: auth key id is 1, password is
-            // 'password'. Any other HSM subcommand:
+            // For 'initialize', 'restore', and 'serial-number'  subcommands
+            // we assume the YubiHSM is in its default state: auth key id is
+            // 1, password is 'password'. Any other HSM subcommand:
             // - we assume the auth id is the same one we setup when executing
             // the initialize command: 2
             // - the user is prompted for a password
@@ -229,7 +163,7 @@ fn main() -> Result<()> {
                 }
                 None => match command {
                     HsmCommand::Initialize { print_dev: _ }
-                    | HsmCommand::RestoreAll
+                    | HsmCommand::Restore
                     | HsmCommand::SerialNumber => (1, "password".to_string()),
                     _ => (
                         2,
@@ -248,29 +182,6 @@ fn main() -> Result<()> {
             let client = Client::open(connector, credentials, true)?;
 
             match command {
-                HsmCommand::Backup { id, kind, file } => {
-                    // this is a bit weird but necessary because the Type type
-                    // returns () on error, not a type implementing std::Error
-                    let kind = match Type::from_str(&kind) {
-                        Ok(k) => k,
-                        Err(_) => {
-                            return Err(anyhow::anyhow!("Invalid object type."))
-                        }
-                    };
-                    oks::hsm::backup(&client, id, kind, file)
-                }
-                HsmCommand::Delete { id, kind } => {
-                    // this is a bit weird but necessary because the Type type
-                    // returns () on error, not a type implementing std::Error
-                    let kind = match Type::from_str(&kind) {
-                        Ok(k) => k,
-                        Err(_) => {
-                            return Err(anyhow::anyhow!("Invalid object type."))
-                        }
-                    };
-                    oks::hsm::delete(&client, id, kind)
-                }
-                HsmCommand::Info => oks::hsm::dump_info(&client),
                 HsmCommand::Initialize { print_dev } => oks::hsm::initialize(
                     &client,
                     &args.state,
@@ -283,15 +194,7 @@ fn main() -> Result<()> {
                     &args.state,
                     &args.output,
                 ),
-                HsmCommand::Reset => oks::hsm::reset(&client),
-                HsmCommand::Restore { file } => {
-                    let file = match file {
-                        Some(p) => p,
-                        None => args.output,
-                    };
-                    oks::hsm::restore(&client, file)
-                }
-                HsmCommand::RestoreAll => {
+                HsmCommand::Restore => {
                     info!("Restoring HSM from backup");
                     info!("Restoring backup / wrap key from shares");
                     oks::hsm::restore_wrap(&client)?;
