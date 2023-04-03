@@ -546,12 +546,11 @@ fn bootstrap_ca(key_spec: &KeySpec, pkcs11_path: &Path) -> Result<()> {
 
     // write initial serial number to 'serial' (echo 1000 > serial)
     let serial = "serial";
-    let sn = 1000u32;
+    let init_serial_hex = format!("{:020x}", key_spec.initial_serial_number);
     debug!(
-        "setting initial serial number to \"{}\" in file \"{}\"",
-        sn, serial
+        "setting initial serial number to \"{init_serial_hex}\" in file \"{serial}\""
     );
-    fs::write(serial, sn.to_string())?;
+    fs::write(serial, init_serial_hex)?;
 
     // create & write out an openssl.cnf
     fs::write(
