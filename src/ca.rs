@@ -81,7 +81,8 @@ default_md                  = {hash:?}
 preserve                    = no
 policy                      = policy_match
 email_in_dn                 = no
-rand_serial                 = no
+# Setting rand_serial to _any_ value, including "no", enables that option
+#rand_serial                = yes
 unique_subject              = yes
 
 [ policy_match ]
