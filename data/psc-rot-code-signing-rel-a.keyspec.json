@@ -6,5 +6,6 @@
     "domain":"DOM1",
     "hash":"Sha384",
     "label":"psc-rot-code-signing-rel-a",
-    "purpose":"ReleaseCodeSigningCA"
+    "purpose":"ReleaseCodeSigningCA",
+    "initial_serial_number": "3cc3000000000000000000000000000000000000"
 }

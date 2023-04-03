@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use log::{error, warn};
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -133,6 +134,8 @@ struct OksKeySpec {
     pub hash: Hash,
     pub label: OksLabel,
     pub purpose: Purpose,
+    #[serde(with = "hex")]
+    pub initial_serial_number: [u8; 20],
 }
 
 #[derive(Debug)]
@@ -145,6 +148,7 @@ pub struct KeySpec {
     pub hash: Hash,
     pub label: Label,
     pub purpose: Purpose,
+    pub initial_serial_number: BigUint,
 }
 
 impl FromStr for KeySpec {
@@ -170,6 +174,9 @@ impl TryFrom<OksKeySpec> for KeySpec {
             hash: spec.hash,
             label: spec.label.try_into()?,
             purpose: spec.purpose,
+            initial_serial_number: BigUint::from_bytes_be(
+                &spec.initial_serial_number,
+            ),
         })
     }
 }
@@ -265,7 +272,8 @@ mod tests {
         "domain":"DOM1",
         "hash":"Sha256",
         "label":"rot-stage0-signing-root-eng-a",
-        "purpose":"ReleaseCodeSigning"
+        "purpose":"ReleaseCodeSigning",
+        "initial_serial_number":"3cc3000000000000000000000000000000000000"
     }"#;
 
     #[test]
@@ -309,7 +317,8 @@ mod tests {
         "domain":"DOM1",
         "hash":"Sha384",
         "label":"rot-identity-signing-ca",
-        "purpose":"DevelopmentCodeSigning"
+        "purpose":"DevelopmentCodeSigning",
+        "initial_serial_number":"0000000000000000000000000000000000000000"
     }"#;
 
     #[test]
@@ -336,7 +345,8 @@ mod tests {
         "domain":"DOM1",
         "hash":"Sha384",
         "label":"rot-identity-signing-ca",
-        "purpose":"Identity"
+        "purpose":"Identity",
+        "initial_serial_number":"0000000000000000000000000000000000000000"
     }"#;
 
     #[test]
