@@ -16,7 +16,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tempfile::TempDir;
+use tempfile::{NamedTempFile, TempDir};
 use thiserror::Error;
 
 use crate::config::{self, CsrSpec, KeySpec, Purpose, KEYSPEC_EXT};
@@ -284,10 +284,9 @@ fn initialize_keyspec(
 
     bootstrap_ca(&spec, pkcs11_path)?;
 
-    // We're chdir-ing around and that makes it a PITA to keep track of file
-    // paths. Stashing everything in a tempdir make it easier to copy it all
-    // out when we're done.
-    let csr = out.join(format!("{}.csr.pem", label));
+    // We don't have a use-case for this artifact once the root cert is
+    // generated so it's purely a temp file.
+    let csr = NamedTempFile::new()?;
 
     // sleep to let sessions cycle
     thread::sleep(Duration::from_millis(1500));
@@ -312,7 +311,7 @@ fn initialize_keyspec(
         .arg("-passin")
         .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-out")
-        .arg(&csr)
+        .arg(&csr.path())
         .output()?;
 
     debug!("executing command: \"{:#?}\"", cmd);
@@ -347,7 +346,7 @@ fn initialize_keyspec(
         .arg("-passin")
         .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-in")
-        .arg(&csr)
+        .arg(&csr.path())
         .arg("-out")
         .arg("ca.cert.pem")
         .output()?;
