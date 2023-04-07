@@ -3,10 +3,18 @@
 
 CD_DEV=/dev/cdrom
 
+error() {
+    >&2 command echo ["$(date --utc +%FT%TZ)" ERROR "${0##*/}"] "$@"
+}
+
+info() {
+    command echo ["$(date --utc +%FT%TZ)" INFO "${0##*/}"] "$@"
+}
+
 # check that a given command is on PATH, if not exit 1
 command_on_path() {
     if ! command -v "$1" &> /dev/null; then
-        >&2 echo "ERROR: missing required command: $1"
+        error "missing required command: $1"
         exit 1
     fi
 }
@@ -24,12 +32,12 @@ fail_with_stderr() {
 
     echo "executing \"$*\""
     if ! "$@" 2> "$ERR_LOG"; then
-        >&2 echo "failed command: \"$*\"\nwith stderr:"
+        error "failed command: \"$*\"\nwith stderr:"
         >&2 cat "$ERR_LOG"
         rm "$ERR_LOG"
         exit 1
     fi
-    rm $ERR_LOG
+    rm "$ERR_LOG"
 }
 
 cd_sha256() {

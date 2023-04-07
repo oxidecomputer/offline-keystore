@@ -9,5 +9,6 @@ set -euo pipefail
 TMP_DIR=$(mktemp --directory)
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 
+info "calculating hash of CD in \"$CD_DEV\""
 HASH=$(cd_sha256 "$CD_DEV" "$TMP_DIR")
-echo "CD in \"$CD_DEV\" hash \"sha256-$HASH\""
+info "CD in \"$CD_DEV\" has hash \"sha256-$HASH\""

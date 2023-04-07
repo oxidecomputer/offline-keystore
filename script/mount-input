@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
 
-mkdir -p input
-mount -o ro /dev/cdrom input
+. oks-lib.sh
+
+DST=input
+
+info "Creating input directory: $DST"
+mkdir -p "$DST"
+
+info "Mounting /dev/cdrom to: $DST"
+mount -o ro /dev/cdrom "$DST"
