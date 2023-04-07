@@ -14,7 +14,7 @@ command_on_path cdrecord
 
 DIR="$1"
 if [[ ! -e "$DIR" ]] || [[ ! -d "$DIR" ]]; then
-    >&2 echo "ERROR: path provided is not a directory: $DIR"
+    error "path provided is not a directory: $DIR"
     exit 1
 fi
 
@@ -24,20 +24,20 @@ trap 'rm -rf -- "$TMP_DIR"' EXIT
 ISO=$TMP_DIR/temp.iso
 
 # generate iso from directory
-echo "INFO: generating iso from directory \"$DIR\""
+info "generating iso from directory \"$DIR\""
 fail_with_stderr mkisofs -r -iso-level 4 -o "$ISO" "$DIR" > /dev/null
 
 if [ ! -f "$ISO" ]; then
-    >&2 echo "ERROR: ISO successfully created but \"$ISO\" is not a file"
+    error "ISO successfully created but \"$ISO\" is not a file"
 fi
 
 # get hash of iso
 ISO_HASH=$(sha256sum "$ISO" | awk '{print $1}')
-echo "INFO: ISO has hash sha256-$ISO_HASH"
+info "ISO has hash sha256-$ISO_HASH"
 
 # cdrecord is noisy on both stdio and stderr. We can't redirect stderr while
 # using 'fail_with_msg' so we do it manually.
-echo "INFO: writing ISO to device: \"$CD_DEV\""
+info "writing ISO to device: \"$CD_DEV\""
 
 fail_with_stderr \
     cdrecord -eject -data "$ISO" dev="$CD_DEV" gracetime=0 timeout=1000 \

@@ -2,5 +2,10 @@
 
 set -eou pipefail
 
+. oks-lib.sh
+
+info "Creating output directory."
 mkdir -p output
+
+info "Starting terminal session recording."
 script --t=output/script-timing.log -a output/script.log
