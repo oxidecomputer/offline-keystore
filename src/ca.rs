@@ -109,7 +109,7 @@ subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:false
 keyUsage                    = critical, digitalSignature
-extendedKeyUsage            = critical, codeSigning
+extendedKeyUsage            = codeSigning
 certificatePolicies         = critical,rotCodeSigningReleasePolicy
 
 [ v3_code_signing_dev_ca ]
@@ -124,7 +124,7 @@ subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:false
 keyUsage                    = critical, digitalSignature
-extendedKeyUsage            = critical, codeSigning
+extendedKeyUsage            = codeSigning
 certificatePolicies         = critical,rotCodeSigningDevelopmentPolicy
 
 [ v3_identity ]
