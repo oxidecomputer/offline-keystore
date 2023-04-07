@@ -1,0 +1,11 @@
+{
+    "common_name": "Gimlet RoT Code Signing Staging Development Root A",
+    "id": 2,
+    "algorithm":"Rsa4096",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha256",
+    "label":"gimlet-rot-code-signing-dev-a",
+    "purpose":"DevelopmentCodeSigningCA",
+    "initial_serial_number": "3cc3000000000000000000000000000000000000"
+}
