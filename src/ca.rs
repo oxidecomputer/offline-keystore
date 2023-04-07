@@ -102,7 +102,7 @@ subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
-certificatePolicies         = critical,rotCodeSigningReleasePolicy
+certificatePolicies         = rotCodeSigningReleasePolicy
 
 [ v3_code_signing_rel ]
 subjectKeyIdentifier        = hash
@@ -110,14 +110,14 @@ authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:false
 keyUsage                    = critical, digitalSignature
 extendedKeyUsage            = codeSigning
-certificatePolicies         = critical,rotCodeSigningReleasePolicy
+certificatePolicies         = rotCodeSigningReleasePolicy
 
 [ v3_code_signing_dev_ca ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
-certificatePolicies         = critical,rotCodeSigningDevelopmentPolicy
+certificatePolicies         = rotCodeSigningDevelopmentPolicy
 
 [ v3_code_signing_dev ]
 subjectKeyIdentifier        = hash
@@ -125,7 +125,7 @@ authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:false
 keyUsage                    = critical, digitalSignature
 extendedKeyUsage            = codeSigning
-certificatePolicies         = critical,rotCodeSigningDevelopmentPolicy
+certificatePolicies         = rotCodeSigningDevelopmentPolicy
 
 [ v3_identity ]
 subjectKeyIdentifier        = hash
