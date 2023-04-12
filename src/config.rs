@@ -18,6 +18,10 @@ use yubihsm::{
     Capability, Domain,
 };
 
+// string for environment variable used to pass in the authentication
+// password for the HSM
+pub const ENV_PASSWORD: &str = "OKS_PASSWORD";
+
 pub const KEYSPEC_EXT: &str = ".keyspec.json";
 
 #[derive(Error, Debug)]

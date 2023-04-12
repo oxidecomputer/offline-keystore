@@ -19,7 +19,9 @@ use std::{
 use tempfile::{NamedTempFile, TempDir};
 use thiserror::Error;
 
-use crate::config::{self, CsrSpec, KeySpec, Purpose, KEYSPEC_EXT};
+use crate::config::{
+    self, CsrSpec, KeySpec, Purpose, ENV_PASSWORD, KEYSPEC_EXT,
+};
 
 /// Name of file in root of a CA directory with key spec used to generate key
 /// in HSM.
@@ -148,7 +150,11 @@ rotCodeSigningDevelopmentPolicy = 1.3.6.1.4.1.57551.1.2
 /// PKCS#11 module knows which key to use
 fn passwd_to_env(env_str: &str) -> Result<()> {
     let mut password = "0002".to_string();
-    password.push_str(&rpassword::prompt_password("Enter YubiHSM Password: ")?);
+    let passwd = match env::var(ENV_PASSWORD).ok() {
+        Some(p) => p,
+        None => rpassword::prompt_password("Enter YubiHSM Password: ")?,
+    };
+    password.push_str(&passwd);
     std::env::set_var(env_str, password);
 
     Ok(())

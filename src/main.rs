@@ -7,13 +7,15 @@ use clap::{Parser, Subcommand};
 use env_logger::Builder;
 use log::{info, LevelFilter};
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 use yubihsm::{
     object::{Id, Type},
     Client, Connector, Credentials, UsbConfig,
 };
+
+use oks::config::ENV_PASSWORD;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -77,7 +79,15 @@ enum CaCommand {
     },
 }
 
-#[derive(Subcommand, Debug, PartialEq)]
+#[derive(Subcommand, Clone, Debug, PartialEq)]
+#[clap(verbatim_doc_comment)]
+/// Commands for interacting with the YubiHSM2 during key ceremonies.
+/// Behavior of this command is influenced by the following environment
+/// variables:
+/// - OKS_PASSWORD - if set this command will use the value from this
+///   variable for authention with the HSM
+/// - OKS_NEW_PASSWORD - if set this command will use the value from this
+///   variable as the password for a newly created admin auth credential
 enum HsmCommand {
     /// Generate keys in YubiHSM from specification.
     Generate {
@@ -119,6 +129,54 @@ fn make_dir(path: &Path) -> Result<()> {
     }
 }
 
+/// Get auth_id, pick reasonable defaults if not set.
+fn get_auth_id(auth_id: Option<Id>, command: HsmCommand) -> Id {
+    match auth_id {
+        // if auth_id is set by the caller we use that value
+        Some(a) => a,
+        None => match command {
+            // for these HSM commands we assume YubiHSM2 is in its
+            // default state and we use the default auth credentials:
+            // auth_id 1
+            HsmCommand::Initialize { print_dev: _ }
+            | HsmCommand::Restore
+            | HsmCommand::SerialNumber => 1,
+            // otherwise we assume the auth key that we create is
+            // present: auth_id 2
+            _ => 2,
+        },
+    }
+}
+
+/// Get password either from environment, the YubiHSM2 default, or challenge
+/// the user with a password prompt.
+fn get_passwd(auth_id: Option<Id>, command: HsmCommand) -> Result<String> {
+    match env::var(ENV_PASSWORD).ok() {
+        Some(s) => Ok(s),
+        None => {
+            if auth_id.is_some() {
+                // if auth_id was set by the caller but not the password we
+                // prompt for the password
+                Ok(rpassword::prompt_password("Enter YubiHSM Password: ")?)
+            } else {
+                match command {
+                    // if password isn't set, auth_id isn't set, and
+                    // the command is one of these, we assume the
+                    // YubiHSM2 is in its default state so we use the
+                    // default password
+                    HsmCommand::Initialize { print_dev: _ }
+                    | HsmCommand::Restore
+                    | HsmCommand::SerialNumber => Ok("password".to_string()),
+                    // otherwise prompt the user for the password
+                    _ => Ok(rpassword::prompt_password(
+                        "Enter YubiHSM Password: ",
+                    )?),
+                }
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -150,27 +208,8 @@ fn main() -> Result<()> {
             }
         },
         Command::Hsm { auth_id, command } => {
-            // Setup authentication credentials:
-            // For 'initialize', 'restore', and 'serial-number'  subcommands
-            // we assume the YubiHSM is in its default state: auth key id is
-            // 1, password is 'password'. Any other HSM subcommand:
-            // - we assume the auth id is the same one we setup when executing
-            // the initialize command: 2
-            // - the user is prompted for a password
-            let (auth_id, passwd) = match auth_id {
-                Some(a) => {
-                    (a, rpassword::prompt_password("Enter YubiHSM Password: ")?)
-                }
-                None => match command {
-                    HsmCommand::Initialize { print_dev: _ }
-                    | HsmCommand::Restore
-                    | HsmCommand::SerialNumber => (1, "password".to_string()),
-                    _ => (
-                        2,
-                        rpassword::prompt_password("Enter YubiHSM Password: ")?,
-                    ),
-                },
-            };
+            let passwd = get_passwd(auth_id, command.clone())?;
+            let auth_id = get_auth_id(auth_id, command.clone());
 
             let config = UsbConfig {
                 serial: None,
