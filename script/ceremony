@@ -5,10 +5,10 @@ set -euo pipefail
 . oks-lib.sh
 
 while true; do
-    echo -n "Enter a password: "
+    echo -n "Enter new HSM password: "
     read -s PASSWD0
     echo
-    read -s -p "Retype a password: " PASSWD1
+    read -s -p "Enter password again to confirm: " PASSWD1
     echo
     if [ "$PASSWD0" == "$PASSWD1" ]; then
         break
