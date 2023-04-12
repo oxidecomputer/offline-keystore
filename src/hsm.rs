@@ -12,6 +12,7 @@ use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
 use std::fs::File;
 use std::{
+    env,
     fs::{self, OpenOptions},
     io::{self, Write},
     path::Path,
@@ -28,6 +29,11 @@ use yubihsm::{
 use zeroize::Zeroize;
 
 use crate::config::{self, KeySpec, KEYSPEC_EXT};
+
+// string for environment variable used to pass in a NEW authentication
+// password for the HSM
+// NOTE: this variable is only relevant to the hsm::initialize function
+pub const ENV_NEW_PASSWORD: &str = "OKS_NEW_PASSWORD";
 
 const WRAP_ID: Id = 1;
 
@@ -429,15 +435,22 @@ fn personalize(
         out_dir.display()
     );
     // get a new password from the user
-    let mut password = loop {
-        let password = rpassword::prompt_password(PASSWD_PROMPT).unwrap();
-        let mut password2 = rpassword::prompt_password(PASSWD_PROMPT2).unwrap();
-        if password != password2 {
-            error!("the passwords entered do not match");
-        } else {
-            password2.zeroize();
-            break password;
+    let mut password = match env::var(ENV_NEW_PASSWORD).ok() {
+        Some(s) => {
+            info!("got password from env");
+            s
         }
+        None => loop {
+            let password = rpassword::prompt_password(PASSWD_PROMPT).unwrap();
+            let mut password2 =
+                rpassword::prompt_password(PASSWD_PROMPT2).unwrap();
+            if password != password2 {
+                error!("the passwords entered do not match");
+            } else {
+                password2.zeroize();
+                break password;
+            }
+        },
     };
     debug!("got the same password twice: {}", password);
 

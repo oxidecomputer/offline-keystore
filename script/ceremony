@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+. oks-lib.sh
+
+while true; do
+    echo -n "Enter a password: "
+    read -s PASSWD0
+    echo
+    read -s -p "Retype a password: " PASSWD1
+    echo
+    if [ "$PASSWD0" == "$PASSWD1" ]; then
+        break
+    else
+        echo "Passwords entered do not match. Try again."
+    fi
+done
+
+info "Initializing HSM"
+OKS_NEW_PASSWORD="$PASSWD0" PRINT_DEV=print.log oks hsm initialize
+
+info "Generating keys"
+OKS_PASSWORD="$PASSWD0" KEY_SPEC=data/ oks hsm generate
+
+info "Initializing CAs"
+OKS_PASSWORD="$PASSWD0" KEY_SPEC=data/ oks ca initialize
+
+info "Signing CSRs"
+OKS_PASSWORD="$PASSWD0" CSR_SPEC=data/ oks ca sign
