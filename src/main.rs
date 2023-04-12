@@ -16,6 +16,7 @@ use yubihsm::{
 };
 
 use oks::config::ENV_PASSWORD;
+use oks::hsm::Hsm;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -220,32 +221,24 @@ fn main() -> Result<()> {
                 Credentials::from_password(auth_id, passwd.as_bytes());
             let client = Client::open(connector, credentials, true)?;
 
+            let hsm = Hsm {
+                client,
+                out_dir: args.output,
+                state_dir: args.state,
+            };
+
             match command {
-                HsmCommand::Initialize { print_dev } => oks::hsm::initialize(
-                    &client,
-                    &args.state,
-                    &args.output,
-                    &print_dev,
-                ),
-                HsmCommand::Generate { key_spec } => oks::hsm::generate(
-                    &client,
-                    &key_spec,
-                    &args.state,
-                    &args.output,
-                ),
-                HsmCommand::Restore => {
-                    info!("Restoring HSM from backup");
-                    info!("Restoring backup / wrap key from shares");
-                    oks::hsm::restore_wrap(&client)?;
-                    info!(
-                        "Restoring keys from backups in: \"{}\"",
-                        &args.state.display()
-                    );
-                    oks::hsm::restore(&client, &args.state)?;
-                    info!("Deleting default authentication key");
-                    oks::hsm::delete(&client, 1, Type::AuthenticationKey)
+                HsmCommand::Initialize { print_dev } => {
+                    hsm.initialize(&print_dev)
                 }
-                HsmCommand::SerialNumber => oks::hsm::dump_sn(&client),
+                HsmCommand::Generate { key_spec } => hsm.generate(&key_spec),
+                HsmCommand::Restore => {
+                    hsm.restore_wrap()?;
+                    oks::hsm::restore(&hsm.client, &hsm.state_dir)?;
+                    info!("Deleting default authentication key");
+                    oks::hsm::delete(&hsm.client, 1, Type::AuthenticationKey)
+                }
+                HsmCommand::SerialNumber => oks::hsm::dump_sn(&hsm.client),
             }
         }
     }
