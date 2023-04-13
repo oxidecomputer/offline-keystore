@@ -18,13 +18,13 @@ while true; do
 done
 
 info "Initializing HSM"
-OKS_NEW_PASSWORD="$PASSWD0" PRINT_DEV=print.log oks hsm initialize
+OKS_NEW_PASSWORD="$PASSWD0" oks hsm initialize
 
 info "Generating keys"
-OKS_PASSWORD="$PASSWD0" KEY_SPEC=data/ oks hsm generate
+OKS_PASSWORD="$PASSWD0" oks hsm generate
 
 info "Initializing CAs"
-OKS_PASSWORD="$PASSWD0" KEY_SPEC=data/ oks ca initialize
+OKS_PASSWORD="$PASSWD0" oks ca initialize
 
 info "Signing CSRs"
-OKS_PASSWORD="$PASSWD0" CSR_SPEC=data/ oks ca sign
+OKS_PASSWORD="$PASSWD0" oks ca sign
