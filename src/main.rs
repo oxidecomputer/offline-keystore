@@ -5,14 +5,14 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Builder;
-use log::{info, LevelFilter};
+use log::{debug, info, LevelFilter};
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
 use yubihsm::{
     object::{Id, Type},
-    Client, Connector, Credentials, UsbConfig,
+    Client, Connector, Credentials, HttpConfig,
 };
 
 use oks::config::ENV_PASSWORD;
@@ -212,13 +212,15 @@ fn main() -> Result<()> {
             let passwd = get_passwd(auth_id, command.clone())?;
             let auth_id = get_auth_id(auth_id, command.clone());
 
-            let config = UsbConfig {
-                serial: None,
+            let config = HttpConfig {
+                addr: "127.0.0.1".to_owned(),
+                port: 12345,
                 timeout_ms: TIMEOUT_MS,
             };
-            let connector = Connector::usb(&config);
+            let connector = Connector::http(&config);
             let credentials =
                 Credentials::from_password(auth_id, passwd.as_bytes());
+            debug!("creating client from Http connector with config: {:?}", &config);
             let client = Client::open(connector, credentials, true)?;
 
             let hsm = Hsm {
