@@ -10,10 +10,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
 };
-use yubihsm::{
-    object::{Id, Type},
-    Client, Connector, Credentials, UsbConfig,
-};
+use yubihsm::object::{Id, Type};
 
 use oks::config::ENV_PASSWORD;
 use oks::hsm::Hsm;
@@ -109,9 +106,6 @@ enum HsmCommand {
     SerialNumber,
 }
 
-// 2 minute to support RSA4K key generation
-const TIMEOUT_MS: u64 = 300000;
-
 fn make_dir(path: &Path) -> Result<()> {
     if !path.try_exists()? {
         // output directory doesn't exist, create it
@@ -131,7 +125,7 @@ fn make_dir(path: &Path) -> Result<()> {
 }
 
 /// Get auth_id, pick reasonable defaults if not set.
-fn get_auth_id(auth_id: Option<Id>, command: HsmCommand) -> Id {
+fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
     match auth_id {
         // if auth_id is set by the caller we use that value
         Some(a) => a,
@@ -151,7 +145,7 @@ fn get_auth_id(auth_id: Option<Id>, command: HsmCommand) -> Id {
 
 /// Get password either from environment, the YubiHSM2 default, or challenge
 /// the user with a password prompt.
-fn get_passwd(auth_id: Option<Id>, command: HsmCommand) -> Result<String> {
+fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
     match env::var(ENV_PASSWORD).ok() {
         Some(s) => Ok(s),
         None => {
@@ -209,23 +203,9 @@ fn main() -> Result<()> {
             }
         },
         Command::Hsm { auth_id, command } => {
-            let passwd = get_passwd(auth_id, command.clone())?;
-            let auth_id = get_auth_id(auth_id, command.clone());
-
-            let config = UsbConfig {
-                serial: None,
-                timeout_ms: TIMEOUT_MS,
-            };
-            let connector = Connector::usb(&config);
-            let credentials =
-                Credentials::from_password(auth_id, passwd.as_bytes());
-            let client = Client::open(connector, credentials, true)?;
-
-            let hsm = Hsm {
-                client,
-                out_dir: args.output,
-                state_dir: args.state,
-            };
+            let passwd = get_passwd(auth_id, &command)?;
+            let auth_id = get_auth_id(auth_id, &command);
+            let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
 
             match command {
                 HsmCommand::Initialize { print_dev } => {
