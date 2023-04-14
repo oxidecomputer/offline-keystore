@@ -50,6 +50,9 @@ enum Command {
         #[command(subcommand)]
         command: HsmCommand,
     },
+    /// Execute the OKS provisioning ceremony in a single command. This
+    /// is equivalent to executing `hsm initialize`, `hsm generate`,
+    /// `ca initialize`, and `ca sign`.
     Ceremony {
         #[clap(long, env, default_value = "input")]
         csr_spec: PathBuf,
@@ -71,6 +74,7 @@ enum Command {
 }
 
 #[derive(Subcommand, Debug, PartialEq)]
+/// Commands for operating on the CAs associated with keys in the HSM.
 enum CaCommand {
     /// Initialize an OpenSSL CA for the given key.
     Initialize {
