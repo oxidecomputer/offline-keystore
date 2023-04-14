@@ -12,7 +12,6 @@ use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
 use std::fs::File;
 use std::{
-    env,
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
@@ -30,11 +29,6 @@ use zeroize::Zeroize;
 
 use crate::config::{self, KeySpec, KEYSPEC_EXT};
 
-// string for environment variable used to pass in a NEW authentication
-// password for the HSM
-// NOTE: this variable is only relevant to the hsm::initialize function
-pub const ENV_NEW_PASSWORD: &str = "OKS_NEW_PASSWORD";
-
 const WRAP_ID: Id = 1;
 
 const ALG: wrap::Algorithm = wrap::Algorithm::Aes256Ccm;
@@ -46,14 +40,12 @@ const SEED_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const LABEL: &str = "backup";
 
-const PASSWD_PROMPT: &str = "Enter new HSM password: ";
-const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
-
 const SHARES: usize = 5;
 const THRESHOLD: usize = 3;
 sa::const_assert!(THRESHOLD <= SHARES);
 
 const BACKUP_EXT: &str = ".backup.json";
+const ATTEST_FILE_NAME: &str = "hsm.attest.cert.pem";
 
 #[derive(Error, Debug)]
 pub enum HsmError {
@@ -111,13 +103,9 @@ impl Hsm {
         })
     }
 
-    /// Initialize a new YubiHSM 2 by creating:
-    /// - a new wap key for backup
-    /// - a new auth key derived from a user supplied password
-    /// This new auth key is backed up / exported under wrap using the new wrap
-    /// key. This backup is written to the provided directory path. Finally this
-    /// function removes the default authentication credentials.
-    pub fn initialize(&self, print_dev: &Path) -> Result<()> {
+    /// create a new wrap key, cut it up into shares, print those shares to
+    /// `print_dev` & put the wrap key in the HSM
+    pub fn new_split_wrap(&self, print_dev: &Path) -> Result<()> {
         info!(
             "Generating wrap / backup key from HSM PRNG with label: \"{}\"",
             LABEL.to_string()
@@ -220,41 +208,16 @@ impl Hsm {
         // key with any other id the HSM isn't in the state we think it is.
         assert_eq!(id, WRAP_ID);
 
-        self.personalize(WRAP_ID)?;
-
         Ok(())
     }
 
     // create a new auth key, remove the default auth key, then export the new
     // auth key under the wrap key with the provided id
-    fn personalize(&self, wrap_id: Id) -> Result<()> {
+    // NOTE: This function consume self because it deletes the auth credential
+    // that was used to create the client object. To use the HSM after calling
+    // this function you'll need to reauthenticate.
+    pub fn replace_default_auth(self, mut password: String) -> Result<()> {
         info!("Setting up new auth credential.");
-        debug!(
-            "personalizing with wrap key {} and out_dir {}",
-            wrap_id,
-            self.out_dir.display()
-        );
-        // get a new password from the user
-        let mut password = match env::var(ENV_NEW_PASSWORD).ok() {
-            Some(s) => {
-                info!("got password from env");
-                s
-            }
-            None => loop {
-                let password =
-                    rpassword::prompt_password(PASSWD_PROMPT).unwrap();
-                let mut password2 =
-                    rpassword::prompt_password(PASSWD_PROMPT2).unwrap();
-                if password != password2 {
-                    error!("the passwords entered do not match");
-                } else {
-                    password2.zeroize();
-                    break password;
-                }
-            },
-        };
-        debug!("got the same password twice: {}", password);
-
         // not compatible with Zeroizing wrapper
         let auth_key = Key::derive_from_password(password.as_bytes());
 
@@ -285,9 +248,6 @@ impl Hsm {
             DEFAULT_AUTHENTICATION_KEY_ID,
             Type::AuthenticationKey,
         )?;
-
-        info!("Collecting YubiHSM attestation cert.");
-        dump_attest_cert(&self.client, &self.out_dir)?;
 
         Ok(())
     }
@@ -412,6 +372,40 @@ impl Hsm {
 
         Ok(())
     }
+
+    /// Write the cert for default attesation key in hsm to the provided
+    /// filepath or a default location under self.output
+    pub fn dump_attest_cert<P: AsRef<Path>>(
+        &self,
+        out: Option<P>,
+    ) -> Result<()> {
+        info!("Collecting YubiHSM attestation cert.");
+        debug!("extracting attestation certificate");
+        let attest_cert = self.client.get_opaque(0)?;
+
+        let attest_cert = pem_rfc7468::encode_string(
+            "CERTIFICATE",
+            LineEnding::default(),
+            &attest_cert,
+        )?;
+
+        let attest_path = match out {
+            Some(o) => {
+                if o.as_ref().is_dir() {
+                    o.as_ref().join(ATTEST_FILE_NAME)
+                } else if o.as_ref().exists() {
+                    // file exists ... overwrite it?
+                    return Err(anyhow::anyhow!("File already exists."));
+                } else {
+                    o.as_ref().to_path_buf()
+                }
+            }
+            None => self.out_dir.join(ATTEST_FILE_NAME),
+        };
+
+        debug!("writing attestation cert to: {}", attest_path.display());
+        Ok(fs::write(&attest_path, attest_cert)?)
+    }
 }
 
 /// Provided a key ID and a object type this function will find the object
@@ -513,23 +507,6 @@ const AUTH_CAPS: Capability = Capability::all();
 const AUTH_DELEGATED: Capability = Capability::all();
 const AUTH_ID: Id = 2;
 const AUTH_LABEL: &str = "admin";
-
-fn dump_attest_cert<P: AsRef<Path>>(client: &Client, out: P) -> Result<()> {
-    // dump cert for default attesation key in hsm
-    debug!("extracting attestation certificate");
-    let attest_cert = client.get_opaque(0)?;
-
-    let attest_cert = pem_rfc7468::encode_string(
-        "CERTIFICATE",
-        LineEnding::default(),
-        &attest_cert,
-    )?;
-
-    let attest_path = out.as_ref().join("hsm.attest.cert.pem");
-
-    debug!("writing attestation cert to: {}", attest_path.display());
-    Ok(fs::write(&attest_path, attest_cert)?)
-}
 
 /// This function is used when displaying key shares as a way for the user to
 /// control progression through the key shares displayed in the terminal.

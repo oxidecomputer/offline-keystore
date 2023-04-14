@@ -5,15 +5,19 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use env_logger::Builder;
-use log::{info, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
 use yubihsm::object::{Id, Type};
+use zeroize::Zeroize;
 
-use oks::config::ENV_PASSWORD;
+use oks::config::{ENV_NEW_PASSWORD, ENV_PASSWORD};
 use oks::hsm::Hsm;
+
+const PASSWD_PROMPT: &str = "Enter new HSM password: ";
+const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -194,6 +198,28 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
     }
 }
 
+/// get a new password from the environment or by issuing a challenge the user
+fn get_new_passwd() -> String {
+    match env::var(ENV_NEW_PASSWORD).ok() {
+        Some(s) => {
+            info!("got password from env");
+            s
+        }
+        None => loop {
+            let password = rpassword::prompt_password(PASSWD_PROMPT).unwrap();
+            let mut password2 =
+                rpassword::prompt_password(PASSWD_PROMPT2).unwrap();
+            if password != password2 {
+                error!("the passwords entered do not match");
+            } else {
+                debug!("got the same password twice: {}", password);
+                password2.zeroize();
+                return password;
+            }
+        },
+    }
+}
+
 /// Perform all operations that make up the ceremony for provisioning an
 /// offline keystore.
 fn do_ceremony(
@@ -203,28 +229,26 @@ fn do_ceremony(
     print_dev: &Path,
     args: &Args,
 ) -> Result<()> {
+    // this is mut so we can zeroize when we're done
+    let mut passwd_new = get_new_passwd();
     {
-        // get password according to rules for the Initialize command
-        let cmd = HsmCommand::Initialize {
-            print_dev: print_dev.to_path_buf(),
-        };
-        let auth_id = get_auth_id(None, &cmd);
-        let passwd = get_passwd(None, &cmd)?;
+        // assume YubiHSM is in default state: use default auth credentials
+        let passwd = "password".to_string();
+        let hsm = Hsm::new(1, &passwd, &args.output, &args.state)?;
 
-        let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
-        hsm.initialize(print_dev)?;
+        hsm.new_split_wrap(print_dev)?;
+        info!("Collecting YubiHSM attestation cert.");
+        hsm.dump_attest_cert::<String>(None)?;
+        hsm.replace_default_auth(passwd_new.clone())?;
     }
     {
-        // get password according to rules for the Generate command
-        let cmd = HsmCommand::Generate {
-            key_spec: key_spec.to_path_buf(),
-        };
-        let auth_id = get_auth_id(None, &cmd);
-        let passwd = get_passwd(None, &cmd)?;
-
-        let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
+        // use new password to auth
+        let hsm = Hsm::new(2, &passwd_new, &args.output, &args.state)?;
         hsm.generate(key_spec)?;
     }
+    // set env var for oks::ca module to pickup for PKCS11 auth
+    env::set_var(ENV_PASSWORD, &passwd_new);
+    passwd_new.zeroize();
     oks::ca::initialize(key_spec, pkcs11_path, &args.state, &args.output)?;
     oks::ca::sign(csr_spec, &args.state, &args.output)
 }
@@ -266,7 +290,10 @@ fn main() -> Result<()> {
 
             match command {
                 HsmCommand::Initialize { print_dev } => {
-                    hsm.initialize(&print_dev)
+                    hsm.new_split_wrap(&print_dev)?;
+                    let passwd_new = get_new_passwd();
+                    hsm.dump_attest_cert::<String>(None)?;
+                    hsm.replace_default_auth(passwd_new)
                 }
                 HsmCommand::Generate { key_spec } => hsm.generate(&key_spec),
                 HsmCommand::Restore => {
