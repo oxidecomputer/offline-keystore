@@ -50,6 +50,24 @@ enum Command {
         #[command(subcommand)]
         command: HsmCommand,
     },
+    Ceremony {
+        #[clap(long, env, default_value = "input")]
+        csr_spec: PathBuf,
+
+        #[clap(long, env, default_value = "input")]
+        key_spec: PathBuf,
+
+        /// Path to the YubiHSM PKCS#11 module
+        #[clap(
+            long,
+            env = "OKS_PKCS11_PATH",
+            default_value = "/usr/lib/pkcs11/yubihsm_pkcs11.so"
+        )]
+        pkcs11_path: PathBuf,
+
+        #[clap(long, env, default_value = "/dev/usb/lp0")]
+        print_dev: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug, PartialEq)]
@@ -172,6 +190,41 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
     }
 }
 
+/// Perform all operations that make up the ceremony for provisioning an
+/// offline keystore.
+fn do_ceremony(
+    csr_spec: &Path,
+    key_spec: &Path,
+    pkcs11_path: &Path,
+    print_dev: &Path,
+    args: &Args,
+) -> Result<()> {
+    {
+        // get password according to rules for the Initialize command
+        let cmd = HsmCommand::Initialize {
+            print_dev: print_dev.to_path_buf(),
+        };
+        let auth_id = get_auth_id(None, &cmd);
+        let passwd = get_passwd(None, &cmd)?;
+
+        let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
+        hsm.initialize(print_dev)?;
+    }
+    {
+        // get password according to rules for the Generate command
+        let cmd = HsmCommand::Generate {
+            key_spec: key_spec.to_path_buf(),
+        };
+        let auth_id = get_auth_id(None, &cmd);
+        let passwd = get_passwd(None, &cmd)?;
+
+        let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
+        hsm.generate(key_spec)?;
+    }
+    oks::ca::initialize(key_spec, pkcs11_path, &args.state, &args.output)?;
+    oks::ca::sign(csr_spec, &args.state, &args.output)
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -221,5 +274,11 @@ fn main() -> Result<()> {
                 HsmCommand::SerialNumber => oks::hsm::dump_sn(&hsm.client),
             }
         }
+        Command::Ceremony {
+            ref csr_spec,
+            ref key_spec,
+            ref pkcs11_path,
+            ref print_dev,
+        } => do_ceremony(csr_spec, key_spec, pkcs11_path, print_dev, &args),
     }
 }
