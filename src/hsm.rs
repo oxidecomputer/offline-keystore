@@ -24,7 +24,7 @@ use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
     wrap::{self, Message},
-    Capability, Client, Domain,
+    Capability, Client, Connector, Credentials, Domain, UsbConfig,
 };
 use zeroize::Zeroize;
 
@@ -83,6 +83,34 @@ pub struct Hsm {
 }
 
 impl Hsm {
+    // 5 minute to support RSA4K key generation
+    // NOTE: RSA key generation is very taxing on the PRNG in the YubiHSM.
+    // It's also highly variable (unpredictable even). In practice we see
+    // RSA4K keys take anywhere from less than 1 minute to over 4 minutes.
+    const TIMEOUT_MS: u64 = 300000;
+
+    pub fn new(
+        auth_id: Id,
+        passwd: &str,
+        out_dir: &Path,
+        state_dir: &Path,
+    ) -> Result<Self> {
+        let config = UsbConfig {
+            serial: None,
+            timeout_ms: Self::TIMEOUT_MS,
+        };
+        let connector = Connector::usb(&config);
+        let credentials =
+            Credentials::from_password(auth_id, passwd.as_bytes());
+        let client = Client::open(connector, credentials, true)?;
+
+        Ok(Hsm {
+            client,
+            out_dir: out_dir.to_path_buf(),
+            state_dir: state_dir.to_path_buf(),
+        })
+    }
+
     /// Initialize a new YubiHSM 2 by creating:
     /// - a new wap key for backup
     /// - a new auth key derived from a user supplied password
