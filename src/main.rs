@@ -199,24 +199,22 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
 }
 
 /// get a new password from the environment or by issuing a challenge the user
-fn get_new_passwd() -> Zeroizing<String> {
+fn get_new_passwd() -> Result<Zeroizing<String>> {
     match env::var(ENV_NEW_PASSWORD).ok() {
         Some(s) => {
             info!("got password from env");
-            Zeroizing::new(s)
+            Ok(Zeroizing::new(s))
         }
         None => loop {
-            let password = Zeroizing::new(
-                rpassword::prompt_password(PASSWD_PROMPT).unwrap(),
-            );
-            let password2 = Zeroizing::new(
-                rpassword::prompt_password(PASSWD_PROMPT2).unwrap(),
-            );
+            let password =
+                Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT)?);
+            let password2 =
+                Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT2)?);
             if password != password2 {
                 error!("the passwords entered do not match");
             } else {
                 debug!("got the same password twice");
-                return password;
+                return Ok(password);
             }
         },
     }
@@ -232,7 +230,7 @@ fn do_ceremony(
     args: &Args,
 ) -> Result<()> {
     // this is mut so we can zeroize when we're done
-    let passwd_new = get_new_passwd();
+    let passwd_new = get_new_passwd()?;
     {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
@@ -292,7 +290,7 @@ fn main() -> Result<()> {
             match command {
                 HsmCommand::Initialize { print_dev } => {
                     hsm.new_split_wrap(&print_dev)?;
-                    let passwd_new = get_new_passwd();
+                    let passwd_new = get_new_passwd()?;
                     hsm.dump_attest_cert::<String>(None)?;
                     hsm.replace_default_auth(passwd_new)
                 }
