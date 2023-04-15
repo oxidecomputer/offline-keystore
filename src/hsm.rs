@@ -25,7 +25,7 @@ use yubihsm::{
     wrap::{self, Message},
     Capability, Client, Connector, Credentials, Domain, UsbConfig,
 };
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use crate::config::{self, KeySpec, KEYSPEC_EXT};
 
@@ -216,12 +216,13 @@ impl Hsm {
     // NOTE: This function consume self because it deletes the auth credential
     // that was used to create the client object. To use the HSM after calling
     // this function you'll need to reauthenticate.
-    pub fn replace_default_auth(self, mut password: String) -> Result<()> {
+    pub fn replace_default_auth(
+        self,
+        password: Zeroizing<String>,
+    ) -> Result<()> {
         info!("Setting up new auth credential.");
-        // not compatible with Zeroizing wrapper
+        // Key implements Zeroize internally on drop
         let auth_key = Key::derive_from_password(password.as_bytes());
-
-        password.zeroize();
 
         debug!("putting new auth key from provided password");
         // create a new auth key
