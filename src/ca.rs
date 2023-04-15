@@ -32,6 +32,8 @@ const CSRSPEC_EXT: &str = ".csrspec.json";
 
 #[derive(Error, Debug)]
 pub enum CaError {
+    #[error("Invalid path to CsrSpec file")]
+    BadCsrSpecPath,
     #[error("Invalid purpose for root CA key")]
     BadPurpose,
     #[error("path not a directory")]
@@ -463,12 +465,15 @@ pub fn sign_csrspec(
 
     // Get prefix from CsrSpec file. We us this to generate file names for the
     // temp CSR file and the output cert file.
-    let csr_filename = csr_spec_path
+    let csr_filename = match csr_spec_path
         .file_name()
-        .unwrap()
+        .ok_or(CaError::BadCsrSpecPath)?
         .to_os_string()
         .into_string()
-        .unwrap();
+    {
+        Ok(s) => s,
+        Err(_) => return Err(CaError::BadCsrSpecPath.into()),
+    };
     let csr_prefix = match csr_filename.find('.') {
         Some(i) => csr_filename[..i].to_string(),
         None => csr_filename,

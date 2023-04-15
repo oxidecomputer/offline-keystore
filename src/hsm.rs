@@ -59,6 +59,8 @@ pub enum HsmError {
     BadLabel,
     #[error("Invalid purpose for root CA key")]
     BadPurpose,
+    #[error("Combined shares produced an invalid Scalar")]
+    BadScalar,
     #[error("Failed to combined shares into wrap key.")]
     CombineKeyFailed { e: vsss_rs::Error },
     #[error("Failed to split wrap key into shares.")]
@@ -125,7 +127,7 @@ impl Hsm {
         let mut rng = ChaCha20Rng::from_seed(rng_seed);
 
         info!("Splitting wrap key into {} shares.", SHARES);
-        let wrap_key = SecretKey::from_be_bytes(&wrap_key).unwrap();
+        let wrap_key = SecretKey::from_be_bytes(&wrap_key)?;
         debug!("wrap key: {:?}", wrap_key.to_be_bytes());
 
         let nzs = wrap_key.to_nonzero_scalar();
@@ -161,7 +163,7 @@ impl Hsm {
             print_dev.display(),
         );
 
-        wait_for_line();
+        wait_for_line()?;
 
         let mut print_file = OpenOptions::new()
             .create(true)
@@ -175,14 +177,14 @@ impl Hsm {
                 {num}",
                 num = share_num,
             );
-            wait_for_line();
+            wait_for_line()?;
 
             print_share(&mut print_file, i, SHARES, share.as_ref())?;
             println!(
                 "When key custodian {} has collected their key share, press enter",
                 share_num,
             );
-            wait_for_line();
+            wait_for_line()?;
         }
 
         // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
@@ -326,7 +328,9 @@ impl Hsm {
             print!("Enter share[{}]: ", i);
             io::stdout().flush()?;
             shares.push(
-                hex::decode(io::stdin().lines().next().unwrap().unwrap())?
+                // This unwrap will panic if there are no lines remaining
+                // which AFAIK means stdin was closed. Not much else to do.
+                hex::decode(io::stdin().lines().next().unwrap()?)?
                     .try_into()
                     .map_err(|_| HsmError::BadKeyShare)?,
             );
@@ -346,8 +350,12 @@ impl Hsm {
         >(&shares)
         .map_err(|e| HsmError::CombineKeyFailed { e })?;
 
-        // from_repr deals in CtOptions, not regular Options?
-        let nz_scalar = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
+        let nz_scalar = NonZeroScalar::from_repr(scalar.to_repr());
+        let nz_scalar = if nz_scalar.is_some().into() {
+            nz_scalar.unwrap()
+        } else {
+            return Err(HsmError::BadScalar.into());
+        };
         let wrap_key = SecretKey::from(nz_scalar);
 
         debug!("restored wrap key: {:?}", wrap_key.to_be_bytes());
@@ -511,8 +519,9 @@ const AUTH_LABEL: &str = "admin";
 
 /// This function is used when displaying key shares as a way for the user to
 /// control progression through the key shares displayed in the terminal.
-fn wait_for_line() {
-    let _ = io::stdin().lines().next().unwrap().unwrap();
+fn wait_for_line() -> Result<()> {
+    let _ = io::stdin().lines().next().unwrap()?;
+    Ok(())
 }
 
 fn are_you_sure() -> Result<bool> {
