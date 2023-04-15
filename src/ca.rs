@@ -18,6 +18,7 @@ use std::{
 };
 use tempfile::{NamedTempFile, TempDir};
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::config::{
     self, CsrSpec, KeySpec, Purpose, ENV_PASSWORD, KEYSPEC_EXT,
@@ -149,11 +150,11 @@ rotCodeSigningDevelopmentPolicy = 1.3.6.1.4.1.57551.1.2
 /// the cert). We also prefix the password with '0002' so the YubiHSM
 /// PKCS#11 module knows which key to use
 fn passwd_to_env(env_str: &str) -> Result<()> {
-    let mut password = "0002".to_string();
-    let passwd = match env::var(ENV_PASSWORD).ok() {
+    let mut password = Zeroizing::new("0002".to_string());
+    let passwd = Zeroizing::new(match env::var(ENV_PASSWORD).ok() {
         Some(p) => p,
         None => rpassword::prompt_password("Enter YubiHSM Password: ")?,
-    };
+    });
     password.push_str(&passwd);
     std::env::set_var(env_str, password);
 

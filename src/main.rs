@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use yubihsm::object::{Id, Type};
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use oks::config::{ENV_NEW_PASSWORD, ENV_PASSWORD};
 use oks::hsm::Hsm;
@@ -199,21 +199,23 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
 }
 
 /// get a new password from the environment or by issuing a challenge the user
-fn get_new_passwd() -> String {
+fn get_new_passwd() -> Zeroizing<String> {
     match env::var(ENV_NEW_PASSWORD).ok() {
         Some(s) => {
             info!("got password from env");
-            s
+            Zeroizing::new(s)
         }
         None => loop {
-            let password = rpassword::prompt_password(PASSWD_PROMPT).unwrap();
-            let mut password2 =
-                rpassword::prompt_password(PASSWD_PROMPT2).unwrap();
+            let password = Zeroizing::new(
+                rpassword::prompt_password(PASSWD_PROMPT).unwrap(),
+            );
+            let password2 = Zeroizing::new(
+                rpassword::prompt_password(PASSWD_PROMPT2).unwrap(),
+            );
             if password != password2 {
                 error!("the passwords entered do not match");
             } else {
-                debug!("got the same password twice: {}", password);
-                password2.zeroize();
+                debug!("got the same password twice");
                 return password;
             }
         },
@@ -230,7 +232,7 @@ fn do_ceremony(
     args: &Args,
 ) -> Result<()> {
     // this is mut so we can zeroize when we're done
-    let mut passwd_new = get_new_passwd();
+    let passwd_new = get_new_passwd();
     {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
@@ -248,7 +250,6 @@ fn do_ceremony(
     }
     // set env var for oks::ca module to pickup for PKCS11 auth
     env::set_var(ENV_PASSWORD, &passwd_new);
-    passwd_new.zeroize();
     oks::ca::initialize(key_spec, pkcs11_path, &args.state, &args.output)?;
     oks::ca::sign(csr_spec, &args.state, &args.output)
 }
