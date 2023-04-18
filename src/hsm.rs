@@ -69,11 +69,75 @@ pub enum HsmError {
     Version,
 }
 
+pub struct Alphabet {
+    chars: Vec<char>,
+}
+
+impl Default for Alphabet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Alphabet {
+    pub fn new() -> Self {
+        let mut chars: Vec<char> = Vec::new();
+
+        for i in b'a'..=b'z' {
+            chars.push(char::from(i));
+        }
+
+        for i in b'A'..=b'Z' {
+            chars.push(char::from(i));
+        }
+
+        for i in b'0'..=b'9' {
+            chars.push(char::from(i));
+        }
+
+        // We generate random passwords from this alphabet by getting a byte
+        // of random data from the HSM and using this value to pick
+        // characters from the alphabet. Our alphabet cannot be larger than
+        // the u8::MAX or it will ignore characters after the u8::MAXth.
+        assert!(usize::from(u8::MAX) > chars.len());
+
+        Alphabet { chars }
+    }
+
+    pub fn get_char(&self, client: &Client) -> Result<char> {
+        let len = self.chars.len() as u8;
+        loop {
+            let rand = client.get_pseudo_random(1)?[0];
+            // Avoid biasing results by ensuring the random values we use
+            // are a multiple of the length of the alphabet. If they aren't
+            // we just get another.
+            if rand < u8::MAX - u8::MAX % len {
+                return Ok(self.chars[(rand % len) as usize]);
+            }
+        }
+    }
+
+    pub fn get_random_string(
+        &self,
+        client: &Client,
+        length: usize,
+    ) -> Result<String> {
+        let mut passwd = String::with_capacity(length + 1);
+
+        for _ in 0..length {
+            passwd.push(self.get_char(client)?);
+        }
+
+        Ok(passwd)
+    }
+}
+
 /// Structure holding common data used by OKS when interacting with the HSM.
 pub struct Hsm {
     pub client: Client,
     pub out_dir: PathBuf,
     pub state_dir: PathBuf,
+    pub alphabet: Alphabet,
 }
 
 impl Hsm {
@@ -102,7 +166,12 @@ impl Hsm {
             client,
             out_dir: out_dir.to_path_buf(),
             state_dir: state_dir.to_path_buf(),
+            alphabet: Alphabet::new(),
         })
+    }
+
+    pub fn rand_string(&self, length: usize) -> Result<String> {
+        self.alphabet.get_random_string(&self.client, length)
     }
 
     /// create a new wrap key, cut it up into shares, print those shares to
@@ -220,7 +289,7 @@ impl Hsm {
     // this function you'll need to reauthenticate.
     pub fn replace_default_auth(
         self,
-        password: Zeroizing<String>,
+        password: &Zeroizing<String>,
     ) -> Result<()> {
         info!("Setting up new auth credential.");
         // Key implements Zeroize internally on drop
@@ -590,6 +659,76 @@ pub fn print_share(
 
     for (i, chunk) in share_data
         .encode_hex::<String>()
+        .as_bytes()
+        .chunks(8)
+        .enumerate()
+    {
+        if i % 4 == 0 {
+            print_file.write_all(&[CR, LF])?;
+        }
+        print_file.write_all(&['\t' as u32 as u8])?;
+        print_file.write_all(chunk)?;
+    }
+
+    print_file.write_all(&[CR, FF])?;
+    Ok(())
+}
+
+// Format a key share for printing with Epson ESC/P
+#[rustfmt::skip]
+pub fn print_password(
+    print_dev: &Path,
+    password: &Zeroizing<String>,
+) -> Result<()> {
+    const ESC: u8 = 0x1b;
+    const LF: u8 = 0x0a;
+    const FF: u8 = 0x0c;
+    const CR: u8 = 0x0d;
+
+    println!(
+        "\nWARNING: The HSM authentication password has been created and stored in\n\
+        the YubiHSM. It will now be printed to {}.\n\
+        Before this password is printed, the operator will be prompted to ensure\n\
+        that the appropriate participant is in front of the printer to recieve\n\
+        the printout.\n\n\
+        Press enter to print the HSM password ...",
+        print_dev.display(),
+    );
+
+    wait_for_line()?;
+
+    let mut print_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(print_dev)?;
+
+    // ESC/P specification recommends sending CR before LF and FF.  The latter commands
+    // print the contents of the data buffer before their movement.  This can cause
+    // double printing (bolding) in certain situations.  Sending CR clears the data buffer
+    // without printing so sending it first avoids any double printing.
+
+    print_file.write_all(&[
+        ESC, '@' as u32 as u8, // Initialize Printer
+        ESC, 'x' as u32 as u8, 1, // Select NLQ mode
+        ESC, 'k' as u32 as u8, 1, // Select San Serif font
+        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, 'E' as u32 as u8, // Select Bold
+    ])?;
+    print_file.write_all("Oxide Offline Keystore".as_bytes())?;
+    print_file.write_all(&[
+        CR, LF,
+        ESC, 'F' as u32 as u8, // Deselect Bold
+        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
+    ])?;
+    print_file.write_all("HSM Password ".as_bytes())?;
+    print_file.write_all(&[
+        CR, LF,
+        CR, LF,
+        ESC, 'D' as u32 as u8, 8, 20, 32, 44, 0, // Set horizontal tab stops
+        CR, LF,
+    ])?;
+
+    for (i, chunk) in password
         .as_bytes()
         .chunks(8)
         .enumerate()

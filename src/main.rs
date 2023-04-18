@@ -14,10 +14,12 @@ use yubihsm::object::{Id, Type};
 use zeroize::Zeroizing;
 
 use oks::config::{ENV_NEW_PASSWORD, ENV_PASSWORD};
-use oks::hsm::Hsm;
+use oks::hsm::{self, Hsm};
 
 const PASSWD_PROMPT: &str = "Enter new HSM password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
+
+const GEN_PASSWD_LENGTH: usize = 16;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -74,6 +76,11 @@ enum Command {
 
         #[clap(long, env, default_value = "/dev/usb/lp0")]
         print_dev: PathBuf,
+
+        #[clap(long, env)]
+        /// Challenge the caller for a new password, don't generate a
+        /// random one for them.
+        passwd_challenge: bool,
     },
 }
 
@@ -123,6 +130,11 @@ enum HsmCommand {
     Initialize {
         #[clap(long, env, default_value = "/dev/usb/lp0")]
         print_dev: PathBuf,
+
+        #[clap(long, env)]
+        /// Challenge the caller for a new password, don't generate a
+        /// random one for them.
+        passwd_challenge: bool,
     },
 
     /// Restore a previously split aes256-ccm-wrap key
@@ -159,7 +171,10 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
             // for these HSM commands we assume YubiHSM2 is in its
             // default state and we use the default auth credentials:
             // auth_id 1
-            HsmCommand::Initialize { print_dev: _ }
+            HsmCommand::Initialize {
+                print_dev: _,
+                passwd_challenge: _,
+            }
             | HsmCommand::Restore
             | HsmCommand::SerialNumber => 1,
             // otherwise we assume the auth key that we create is
@@ -185,7 +200,10 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
                     // the command is one of these, we assume the
                     // YubiHSM2 is in its default state so we use the
                     // default password
-                    HsmCommand::Initialize { print_dev: _ }
+                    HsmCommand::Initialize {
+                        print_dev: _,
+                        passwd_challenge: _,
+                    }
                     | HsmCommand::Restore
                     | HsmCommand::SerialNumber => Ok("password".to_string()),
                     // otherwise prompt the user for the password
@@ -199,23 +217,32 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
 }
 
 /// get a new password from the environment or by issuing a challenge the user
-fn get_new_passwd() -> Result<Zeroizing<String>> {
+fn get_new_passwd(hsm: Option<&Hsm>) -> Result<Zeroizing<String>> {
     match env::var(ENV_NEW_PASSWORD).ok() {
+        // prefer new password from env above all else
         Some(s) => {
             info!("got password from env");
             Ok(Zeroizing::new(s))
         }
-        None => loop {
-            let password =
-                Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT)?);
-            let password2 =
-                Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT2)?);
-            if password != password2 {
-                error!("the passwords entered do not match");
-            } else {
-                debug!("got the same password twice");
-                return Ok(password);
+        None => match hsm {
+            // use the HSM otherwise if available
+            Some(hsm) => {
+                info!("Generating random password");
+                Ok(Zeroizing::new(hsm.rand_string(GEN_PASSWD_LENGTH)?))
             }
+            // last option: challenge the caller
+            None => loop {
+                let password =
+                    Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT)?);
+                let password2 =
+                    Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT2)?);
+                if password != password2 {
+                    error!("the passwords entered do not match");
+                } else {
+                    debug!("got the same password twice");
+                    return Ok(password);
+                }
+            },
         },
     }
 }
@@ -227,11 +254,11 @@ fn do_ceremony(
     key_spec: &Path,
     pkcs11_path: &Path,
     print_dev: &Path,
+    challenge: bool,
     args: &Args,
 ) -> Result<()> {
     // this is mut so we can zeroize when we're done
-    let passwd_new = get_new_passwd()?;
-    {
+    let passwd_new = {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
         let hsm = Hsm::new(1, &passwd, &args.output, &args.state)?;
@@ -239,8 +266,17 @@ fn do_ceremony(
         hsm.new_split_wrap(print_dev)?;
         info!("Collecting YubiHSM attestation cert.");
         hsm.dump_attest_cert::<String>(None)?;
-        hsm.replace_default_auth(passwd_new.clone())?;
-    }
+
+        let passwd = if challenge {
+            get_new_passwd(None)?
+        } else {
+            let passwd = get_new_passwd(Some(&hsm))?;
+            hsm::print_password(print_dev, &passwd)?;
+            passwd
+        };
+        hsm.replace_default_auth(&passwd)?;
+        passwd
+    };
     {
         // use new password to auth
         let hsm = Hsm::new(2, &passwd_new, &args.output, &args.state)?;
@@ -288,11 +324,20 @@ fn main() -> Result<()> {
             let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
 
             match command {
-                HsmCommand::Initialize { print_dev } => {
+                HsmCommand::Initialize {
+                    print_dev,
+                    passwd_challenge,
+                } => {
                     hsm.new_split_wrap(&print_dev)?;
-                    let passwd_new = get_new_passwd()?;
+                    let passwd_new = if passwd_challenge {
+                        get_new_passwd(None)?
+                    } else {
+                        let passwd = get_new_passwd(Some(&hsm))?;
+                        hsm::print_password(&print_dev, &passwd)?;
+                        passwd
+                    };
                     hsm.dump_attest_cert::<String>(None)?;
-                    hsm.replace_default_auth(passwd_new)
+                    hsm.replace_default_auth(&passwd_new)
                 }
                 HsmCommand::Generate { key_spec } => hsm.generate(&key_spec),
                 HsmCommand::Restore => {
@@ -309,6 +354,14 @@ fn main() -> Result<()> {
             ref key_spec,
             ref pkcs11_path,
             ref print_dev,
-        } => do_ceremony(csr_spec, key_spec, pkcs11_path, print_dev, &args),
+            passwd_challenge,
+        } => do_ceremony(
+            csr_spec,
+            key_spec,
+            pkcs11_path,
+            print_dev,
+            passwd_challenge,
+            &args,
+        ),
     }
 }
