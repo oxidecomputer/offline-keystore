@@ -137,11 +137,16 @@ subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
+certificatePolicies         = critical, deviceIdentityPolicy, tcg-dice-kp-identityInit, tcg-dice-kp-attestInit, tcg-dice-kp-eca
 
 [ OIDs ]
 # https://github.com/oxidecomputer/oana#asn1-object-identifiers
 rotCodeSigningReleasePolicy = 1.3.6.1.4.1.57551.1.1
 rotCodeSigningDevelopmentPolicy = 1.3.6.1.4.1.57551.1.2
+deviceIdentityPolicy = 1.3.6.1.4.1.57551.1.3
+tcg-dice-kp-identityInit = 2.23.133.5.4.100.6
+tcg-dice-kp-attestInit = 2.23.133.5.4.100.8
+tcg-dice-kp-eca = 2.23.133.5.4.100.12
 
 "#
     };
