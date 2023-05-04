@@ -107,6 +107,7 @@ subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
+extendedKeyUsage            = nxpLpc55DebugAuthCredentialSigning
 certificatePolicies         = rotCodeSigningReleasePolicy
 
 [ v3_code_signing_rel ]
@@ -122,6 +123,7 @@ subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
 keyUsage                    = critical, keyCertSign, cRLSign
+extendedKeyUsage            = nxpLpc55DebugAuthCredentialSigning
 certificatePolicies         = rotCodeSigningDevelopmentPolicy
 
 [ v3_code_signing_dev ]
@@ -144,6 +146,7 @@ certificatePolicies         = critical, deviceIdentityPolicy, tcg-dice-kp-identi
 rotCodeSigningReleasePolicy = 1.3.6.1.4.1.57551.1.1
 rotCodeSigningDevelopmentPolicy = 1.3.6.1.4.1.57551.1.2
 deviceIdentityPolicy = 1.3.6.1.4.1.57551.1.3
+nxpLpc55DebugAuthCredentialSigning = 1.3.6.1.4.1.57551.2.1
 tcg-dice-kp-identityInit = 2.23.133.5.4.100.6
 tcg-dice-kp-attestInit = 2.23.133.5.4.100.8
 tcg-dice-kp-eca = 2.23.133.5.4.100.12
