@@ -109,10 +109,10 @@ pub enum Hash {
 /// All certs issued by the OKS are assumed to be intermediate CAs.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Purpose {
-    DevelopmentCodeSigningCA,
-    ReleaseCodeSigningCA,
-    DevelopmentCodeSigning,
-    ReleaseCodeSigning,
+    RoTDevelopmentRoot,
+    RoTReleaseRoot,
+    RoTDevelopmentCodeSigning,
+    RoTReleaseCodeSigning,
     Identity,
 }
 
@@ -121,10 +121,10 @@ pub enum Purpose {
 impl ToString for Purpose {
     fn to_string(&self) -> String {
         let str = match self {
-            Purpose::ReleaseCodeSigningCA => "v3_code_signing_rel_ca",
-            Purpose::DevelopmentCodeSigningCA => "v3_code_signing_dev_ca",
-            Purpose::ReleaseCodeSigning => "v3_code_signing_rel",
-            Purpose::DevelopmentCodeSigning => "v3_code_signing_dev",
+            Purpose::RoTReleaseRoot => "v3_rot_release_root",
+            Purpose::RoTDevelopmentRoot => "v3_rot_development_root",
+            Purpose::RoTReleaseCodeSigning => "v3_code_signing_rel",
+            Purpose::RoTDevelopmentCodeSigning => "v3_code_signing_dev",
             Purpose::Identity => "v3_identity",
         };
         String::from(str)
@@ -279,7 +279,7 @@ mod tests {
         "domain":"DOM1",
         "hash":"Sha256",
         "label":"rot-stage0-signing-root-eng-a",
-        "purpose":"ReleaseCodeSigning",
+        "purpose":"RoTReleaseCodeSigning",
         "initial_serial_number":"3cc3000000000000000000000000000000000000"
     }"#;
 
@@ -324,7 +324,7 @@ mod tests {
         "domain":"DOM1",
         "hash":"Sha384",
         "label":"rot-identity-signing-ca",
-        "purpose":"DevelopmentCodeSigning",
+        "purpose":"RoTDevelopmentCodeSigning",
         "initial_serial_number":"0000000000000000000000000000000000000000"
     }"#;
 
@@ -340,7 +340,7 @@ mod tests {
             OksLabel("rot-identity-signing-ca".to_string())
         );
         assert_eq!(key_spec.algorithm, OksAlgorithm::Ecp384);
-        assert_eq!(key_spec.purpose, Purpose::DevelopmentCodeSigning);
+        assert_eq!(key_spec.purpose, Purpose::RoTDevelopmentCodeSigning);
         Ok(())
     }
 

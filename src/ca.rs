@@ -102,7 +102,7 @@ emailAddress                = optional
 default_md                  = {hash:?}
 string_mask                 = utf8only
 
-[ v3_code_signing_rel_ca ]
+[ v3_rot_release_root ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
@@ -118,7 +118,7 @@ keyUsage                    = critical, digitalSignature
 extendedKeyUsage            = codeSigning
 certificatePolicies         = rotCodeSigningReleasePolicy
 
-[ v3_code_signing_dev_ca ]
+[ v3_rot_development_root ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid:always,issuer
 basicConstraints            = critical,CA:true
@@ -279,8 +279,8 @@ fn initialize_keyspec(
     // this makes me think we need different types for this:
     // one for the CA keys, one for the children we sign
     match spec.purpose {
-        Purpose::ReleaseCodeSigningCA
-        | Purpose::DevelopmentCodeSigningCA
+        Purpose::RoTReleaseRoot
+        | Purpose::RoTDevelopmentRoot
         | Purpose::Identity => (),
         _ => return Err(CaError::BadPurpose.into()),
     }
@@ -454,8 +454,8 @@ pub fn sign_csrspec(
     // one for the CA keys, one for the children we sign
     // map purpose of CA key to key associated with CSR
     let purpose = match key_spec.purpose {
-        Purpose::ReleaseCodeSigningCA => Purpose::ReleaseCodeSigning,
-        Purpose::DevelopmentCodeSigningCA => Purpose::DevelopmentCodeSigning,
+        Purpose::RoTReleaseRoot => Purpose::RoTReleaseCodeSigning,
+        Purpose::RoTDevelopmentRoot => Purpose::RoTDevelopmentCodeSigning,
         Purpose::Identity => Purpose::Identity,
         _ => return Err(CaError::BadPurpose.into()),
     };
