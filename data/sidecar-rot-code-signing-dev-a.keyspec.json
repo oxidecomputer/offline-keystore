@@ -1,11 +1,11 @@
 {
-    "common_name": "Sidecar RoT Code Signing Staging Development Root A",
+    "common_name": "Sidecar RoT Staging Development Root A",
     "id": 6,
     "algorithm":"Ecp384",
     "capabilities":"All",
     "domain":"DOM1",
     "hash":"Sha384",
-    "label":"sidecar-rot-code-signing-dev-a",
+    "label":"sidecar-rot-dev-a",
     "purpose":"RoTDevelopmentRoot",
     "initial_serial_number": "3cc3000000000000000000000000000000000000"
 }

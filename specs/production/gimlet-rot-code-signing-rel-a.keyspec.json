@@ -1,11 +1,11 @@
 {
-    "common_name": "Gimlet RoT Code Signing Production Release Root A",
+    "common_name": "Gimlet RoT Production Release Root A",
     "id": 1,
     "algorithm":"Rsa4096",
     "capabilities":"All",
     "domain":"DOM1",
     "hash":"Sha256",
-    "label":"gimlet-rot-code-signing-rel-a",
+    "label":"gimlet-rot-rel-a",
     "purpose":"RoTReleaseRoot",
     "initial_serial_number": "3cc3000000000000000000000000000000000000"
 }
