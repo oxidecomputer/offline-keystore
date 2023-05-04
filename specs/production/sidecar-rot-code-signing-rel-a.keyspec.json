@@ -1,11 +1,11 @@
 {
-    "common_name": "Sidecar RoT Code Signing Production Release Root A",
+    "common_name": "Sidecar RoT Production Release Root A",
     "id": 5,
     "algorithm":"Rsa4096",
     "capabilities":"All",
     "domain":"DOM1",
     "hash":"Sha256",
-    "label":"sidecar-rot-code-signing-rel-a",
+    "label":"sidecar-rot-rel-a",
     "purpose":"RoTReleaseRoot",
     "initial_serial_number": "3cc3000000000000000000000000000000000000"
 }

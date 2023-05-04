@@ -1,11 +1,11 @@
 {
-    "common_name": "Gimlet RoT Code Signing Staging Development Root B",
+    "common_name": "Gimlet RoT Staging Development Root B",
     "id": 4,
     "algorithm":"Ecp384",
     "capabilities":"All",
     "domain":"DOM1",
     "hash":"Sha384",
-    "label":"gimlet-rot-code-signing-dev-b",
+    "label":"gimlet-rot-dev-b",
     "purpose":"RoTDevelopmentRoot",
     "initial_serial_number": "3cc3000000000000000000000000000000000000"
 }

@@ -1,11 +1,11 @@
 {
-    "common_name": "PSC RoT Code Signing Staging Development Root A",
+    "common_name": "PSC RoT Staging Development Root A",
     "id": 10,
     "algorithm":"Rsa4096",
     "capabilities":"All",
     "domain":"DOM1",
     "hash":"Sha256",
-    "label":"psc-rot-code-signing-dev-a",
+    "label":"psc-rot-dev-a",
     "purpose":"RoTDevelopmentRoot",
     "initial_serial_number": "3cc3000000000000000000000000000000000000"
 }
