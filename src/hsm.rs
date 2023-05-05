@@ -616,10 +616,37 @@ fn are_you_sure() -> Result<bool> {
     Ok(buffer == "y")
 }
 
+// Character pitch is assumed to be 10 CPI
+const CHARACTERS_PER_INCH: usize = 10;
+
+// Horizontal position location is measured in 1/60th of an inch
+const UNITS_PER_INCH: usize = 60;
+
+const UNITS_PER_CHARACTER: usize = UNITS_PER_INCH / CHARACTERS_PER_INCH;
+
+// Page is 8.5" wide.  Using 17/2 to stay in integers.
+const UNITS_PER_LINE: usize = 17 * UNITS_PER_INCH / 2;
+
 const ESC: u8 = 0x1b;
 const LF: u8 = 0x0a;
 const FF: u8 = 0x0c;
 const CR: u8 = 0x0d;
+
+fn print_centered_line(print_file: &mut File, text: &[u8]) -> Result<()> {
+    let text_width_units = text.len() * UNITS_PER_CHARACTER;
+
+    let remaining_space = UNITS_PER_LINE - text_width_units;
+    let half_remaining = remaining_space / 2;
+
+    let n_h = (half_remaining / 256) as u8;
+    let n_l = (half_remaining % 256) as u8;
+
+    print_file.write_all(&[ESC, b'$', n_l, n_h])?;
+
+    print_file.write_all(text)?;
+
+    Ok(())
+}
 
 fn print_whitespace_notice(
     print_file: &mut File,
@@ -659,30 +686,17 @@ pub fn print_share(
         ESC, b'@', // Initialize Printer
         ESC, b'x', 1, // Select NLQ mode
         ESC, b'k', 1, // Select San Serif font
-        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
         ESC, b'E', // Select Bold
     ])?;
-    print_file.write_all(b"Oxide Offline Keystore")?;
+    print_centered_line(print_file, b"Oxide Offline Keystore")?;
     print_file.write_all(&[
         CR, LF,
         ESC, b'F', // Deselect Bold
-        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
     ])?;
-    print_file.write_all(b"Recovery Key Share ")?;
+
+    print_centered_line(print_file, format!("Recovery Key Share {} of {}",
+            share_idx + 1, share_count).as_bytes())?;
     print_file.write_all(&[
-        ESC, b'-', 1, // Select underscore
-    ])?;
-    print_file.write_all((share_idx + 1).to_string().as_bytes())?;
-    print_file.write_all(&[
-        ESC, b'-', 0, // Deselect underscore
-    ])?;
-    print_file.write_all(" of ".as_bytes())?;
-    print_file.write_all(&[
-        ESC, b'-', 1, // Select underscore
-    ])?;
-    print_file.write_all(share_count.to_string().as_bytes())?;
-    print_file.write_all(&[
-        ESC, b'-', 0, // Deselect underscore
         CR, LF,
         CR, LF,
         ESC, b'D', 8, 20, 32, 44, 0, // Set horizontal tab stops
@@ -741,16 +755,14 @@ pub fn print_password(
         ESC, b'@', // Initialize Printer
         ESC, b'x', 1, // Select NLQ mode
         ESC, b'k', 1, // Select San Serif font
-        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
         ESC, b'E', // Select Bold
     ])?;
-    print_file.write_all(b"Oxide Offline Keystore")?;
+    print_centered_line(&mut print_file, b"Oxide Offline Keystore")?;
     print_file.write_all(&[
         CR, LF,
         ESC, b'F', // Deselect Bold
-        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
     ])?;
-    print_file.write_all(b"HSM Password ")?;
+    print_centered_line(&mut print_file, b"HSM Password")?;
     print_file.write_all(&[
         CR, LF,
         CR, LF,
