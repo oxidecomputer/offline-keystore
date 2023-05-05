@@ -616,6 +616,11 @@ fn are_you_sure() -> Result<bool> {
     Ok(buffer == "y")
 }
 
+const ESC: u8 = 0x1b;
+const LF: u8 = 0x0a;
+const FF: u8 = 0x0c;
+const CR: u8 = 0x0d;
+
 // Format a key share for printing with Epson ESC/P
 #[rustfmt::skip]
 pub fn print_share(
@@ -624,11 +629,6 @@ pub fn print_share(
     share_count: usize,
     share_data: &[u8],
 ) -> Result<()> {
-    const ESC: u8 = 0x1b;
-    const LF: u8 = 0x0a;
-    const FF: u8 = 0x0c;
-    const CR: u8 = 0x0d;
-
     // ESC/P specification recommends sending CR before LF and FF.  The latter commands
     // print the contents of the data buffer before their movement.  This can cause
     // double printing (bolding) in certain situations.  Sending CR clears the data buffer
@@ -690,11 +690,6 @@ pub fn print_password(
     print_dev: &Path,
     password: &Zeroizing<String>,
 ) -> Result<()> {
-    const ESC: u8 = 0x1b;
-    const LF: u8 = 0x0a;
-    const FF: u8 = 0x0c;
-    const CR: u8 = 0x0d;
-
     println!(
         "\nWARNING: The HSM authentication password has been created and stored in\n\
         the YubiHSM. It will now be printed to {}.\n\
