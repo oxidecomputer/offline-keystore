@@ -681,6 +681,7 @@ pub fn print_password(
 ) -> Result<()> {
     const ESC: u8 = 0x1b;
     const LF: u8 = 0x0a;
+    const FF: u8 = 0x0c;
     const CR: u8 = 0x0d;
 
     println!(
@@ -738,6 +739,6 @@ pub fn print_password(
         print_file.write_all(chunk)?;
     }
 
-    print_file.write_all(&[CR, LF])?;
+    print_file.write_all(&[CR, FF])?;
     Ok(())
 }
