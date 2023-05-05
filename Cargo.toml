@@ -23,6 +23,7 @@ serde = "1.0.153"
 serde_json = "1.0.94"
 static_assertions = "1.1.0"
 tempfile = "3.4.0"
+textwrap = "0.16.0"
 thiserror = "1.0.39"
 vsss-rs = "2.7.1"
 yubihsm = { version = "0.41.0", features = ["usb"] }
