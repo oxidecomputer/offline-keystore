@@ -103,28 +103,36 @@ impl Alphabet {
         }
     }
 
-    pub fn get_char(&self, client: &Client) -> Result<char> {
+    pub fn get_char(&self, val: u8) -> Option<char> {
         let len = self.chars.len() as u8;
-        loop {
-            let rand = client.get_pseudo_random(1)?[0];
-            // Avoid biasing results by ensuring the random values we use
-            // are a multiple of the length of the alphabet. If they aren't
-            // we just get another.
-            if rand < u8::MAX - u8::MAX % len {
-                return Ok(self.chars[(rand % len) as usize]);
-            }
+        // let rand = ;
+        // Avoid biasing results by ensuring the random values we use
+        // are a multiple of the length of the alphabet. If they aren't
+        // we just get another.
+        if val < u8::MAX - u8::MAX % len {
+            Some(self.chars[(val % len) as usize])
+        } else {
+            None
         }
     }
 
     pub fn get_random_string(
         &self,
-        client: &Client,
+        get_rand_u8: impl Fn() -> Result<u8>,
         length: usize,
     ) -> Result<String> {
         let mut passwd = String::with_capacity(length + 1);
 
         for _ in 0..length {
-            passwd.push(self.get_char(client)?);
+            let char = loop {
+                let rand = get_rand_u8()?;
+
+                if let Some(char) = self.get_char(rand) {
+                    break char;
+                }
+            };
+
+            passwd.push(char);
         }
 
         Ok(passwd)
@@ -170,7 +178,10 @@ impl Hsm {
     }
 
     pub fn rand_string(&self, length: usize) -> Result<String> {
-        self.alphabet.get_random_string(&self.client, length)
+        self.alphabet.get_random_string(
+            || Ok(self.client.get_pseudo_random(1)?[0]),
+            length,
+        )
     }
 
     /// create a new wrap key, cut it up into shares, print those shares to
