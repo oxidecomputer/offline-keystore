@@ -100,6 +100,11 @@ enum CaCommand {
             default_value = "/usr/lib/pkcs11/yubihsm_pkcs11.so"
         )]
         pkcs11_path: PathBuf,
+
+        /// Instead of creating a self signed certificate for the CA, create
+        /// and export a CSR to the ca-state directory.
+        #[clap(long)]
+        csr_only: bool,
     },
 
     /// Use the CA associated with the provided key spec to sign the
@@ -284,7 +289,13 @@ fn do_ceremony(
     }
     // set env var for oks::ca module to pickup for PKCS11 auth
     env::set_var(ENV_PASSWORD, &passwd_new);
-    oks::ca::initialize(key_spec, pkcs11_path, &args.state, &args.output)?;
+    oks::ca::initialize(
+        key_spec,
+        pkcs11_path,
+        false,
+        &args.state,
+        &args.output,
+    )?;
     oks::ca::sign(csr_spec, &args.state, &args.output)
 }
 
@@ -308,9 +319,11 @@ fn main() -> Result<()> {
             CaCommand::Initialize {
                 key_spec,
                 pkcs11_path,
+                csr_only,
             } => oks::ca::initialize(
                 &key_spec,
                 &pkcs11_path,
+                csr_only,
                 &args.state,
                 &args.output,
             ),

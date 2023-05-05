@@ -200,6 +200,7 @@ fn start_connector() -> Result<Child> {
 pub fn initialize(
     key_spec: &Path,
     pkcs11_path: &Path,
+    csr_only: bool,
     ca_state: &Path,
     out: &Path,
 ) -> Result<()> {
@@ -234,9 +235,13 @@ pub fn initialize(
         info!("Initializing CA from KeySpec: {:?}", path);
         // sleep to let sessions cycle
         thread::sleep(Duration::from_millis(1500));
-        if let Err(e) =
-            initialize_keyspec(&path, pkcs11_path, &tmp_ca_state, &tmp_out)
-        {
+        if let Err(e) = initialize_keyspec(
+            &path,
+            pkcs11_path,
+            csr_only,
+            &tmp_ca_state,
+            &tmp_out,
+        ) {
             // Ignore possible error from killing connector because we already
             // have an error to report and it'll be more interesting.
             let _ = connector.kill();
@@ -266,6 +271,7 @@ pub fn initialize(
 fn initialize_keyspec(
     key_spec: &Path,
     pkcs11_path: &Path,
+    csr_only: bool,
     ca_state: &Path,
     out: &Path,
 ) -> Result<()> {
@@ -339,45 +345,50 @@ fn initialize_keyspec(
         return Err(CaError::SelfCertGenFail.into());
     }
 
-    // sleep to let sessions cycle
-    thread::sleep(Duration::from_millis(1500));
+    if csr_only {
+        let csr_out = out.join(format!("{}.csr.pem", label));
+        fs::copy(csr.path(), csr_out)?;
+    } else {
+        // sleep to let sessions cycle
+        thread::sleep(Duration::from_millis(1500));
 
-    //  generate cert for CA root
-    info!("Generating self-signed cert for CA root");
-    let mut cmd = Command::new("openssl");
-    let output = cmd
-        .arg("ca")
-        .arg("-batch")
-        .arg("-selfsign")
-        .arg("-notext")
-        .arg("-config")
-        .arg("openssl.cnf")
-        .arg("-engine")
-        .arg("pkcs11")
-        .arg("-keyform")
-        .arg("engine")
-        .arg("-keyfile")
-        .arg(format!("0:{:04x}", spec.id))
-        .arg("-extensions")
-        .arg(spec.purpose.to_string())
-        .arg("-passin")
-        .arg("env:OKM_HSM_PKCS11_AUTH")
-        .arg("-in")
-        .arg(&csr.path())
-        .arg("-out")
-        .arg("ca.cert.pem")
-        .output()?;
+        //  generate cert for CA root
+        info!("Generating self-signed cert for CA root");
+        let mut cmd = Command::new("openssl");
+        let output = cmd
+            .arg("ca")
+            .arg("-batch")
+            .arg("-selfsign")
+            .arg("-notext")
+            .arg("-config")
+            .arg("openssl.cnf")
+            .arg("-engine")
+            .arg("pkcs11")
+            .arg("-keyform")
+            .arg("engine")
+            .arg("-keyfile")
+            .arg(format!("0:{:04x}", spec.id))
+            .arg("-extensions")
+            .arg(spec.purpose.to_string())
+            .arg("-passin")
+            .arg("env:OKM_HSM_PKCS11_AUTH")
+            .arg("-in")
+            .arg(&csr.path())
+            .arg("-out")
+            .arg("ca.cert.pem")
+            .output()?;
 
-    debug!("executing command: \"{:#?}\"", cmd);
+        debug!("executing command: \"{:#?}\"", cmd);
 
-    if !output.status.success() {
-        warn!("command failed with status: {}", output.status);
-        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        return Err(CaError::SelfCertGenFail.into());
+        if !output.status.success() {
+            warn!("command failed with status: {}", output.status);
+            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+            return Err(CaError::SelfCertGenFail.into());
+        }
+
+        let cert = out.join(format!("{}.cert.pem", label));
+        fs::copy("ca.cert.pem", cert)?;
     }
-
-    let cert = out.join(format!("{}.cert.pem", label));
-    fs::copy("ca.cert.pem", cert)?;
 
     env::set_current_dir(pwd)?;
 
