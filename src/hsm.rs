@@ -621,6 +621,27 @@ const LF: u8 = 0x0a;
 const FF: u8 = 0x0c;
 const CR: u8 = 0x0d;
 
+fn print_whitespace_notice(
+    print_file: &mut File,
+    data_type: &str,
+) -> Result<()> {
+    print_file.write_all(&[
+        ESC, b'$', 0, 0, // Move to left edge
+    ])?;
+
+    let options = textwrap::Options::new(70)
+        .initial_indent("     NOTE: ")
+        .subsequent_indent("           ");
+    let text = format!("Whitespace is a visual aid only and must be omitted when entering the {data_type}");
+
+    for line in textwrap::wrap(&text, options) {
+        print_file.write_all(&[CR, LF])?;
+        print_file.write_all(line.as_bytes())?;
+    }
+
+    Ok(())
+}
+
 // Format a key share for printing with Epson ESC/P
 #[rustfmt::skip]
 pub fn print_share(
@@ -679,6 +700,10 @@ pub fn print_share(
         print_file.write_all(&[b'\t'])?;
         print_file.write_all(chunk)?;
     }
+
+    print_file.write_all(&[CR, LF])?;
+
+    print_whitespace_notice(print_file, "recovery key share")?;
 
     print_file.write_all(&[CR, FF])?;
     Ok(())
@@ -744,6 +769,10 @@ pub fn print_password(
         print_file.write_all(&[b'\t'])?;
         print_file.write_all(chunk)?;
     }
+
+    print_file.write_all(&[CR, LF])?;
+
+    print_whitespace_notice(&mut print_file, "HSM password")?;
 
     print_file.write_all(&[CR, FF])?;
     Ok(())
