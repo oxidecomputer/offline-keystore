@@ -7,6 +7,9 @@ use std::{fs::OpenOptions, path::PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use hex::ToHex;
+use oks::hsm::Alphabet;
+use rand::{thread_rng, Rng};
+use zeroize::Zeroizing;
 
 #[derive(Parser)]
 struct Args {
@@ -23,6 +26,10 @@ enum Command {
         share_idx: usize,
         share_count: usize,
         data_len: usize,
+    },
+    HsmPassword {
+        #[clap(default_value_t = 16)]
+        length: usize,
     },
 }
 
@@ -52,6 +59,12 @@ fn main() -> Result<()> {
                 share_count,
                 &share_data,
             )
+        }
+        Command::HsmPassword { length } => {
+            let password = Alphabet::new()
+                .get_random_string(|| Ok(thread_rng().gen::<u8>()), length)?;
+            let password = Zeroizing::new(password);
+            oks::hsm::print_password(&args.print_dev, &password)
         }
     }
 }
