@@ -10,6 +10,7 @@ use p256::{NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
 use pem_rfc7468::LineEnding;
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
+use std::collections::HashSet;
 use std::fs::File;
 use std::{
     fs::{self, OpenOptions},
@@ -81,19 +82,15 @@ impl Default for Alphabet {
 
 impl Alphabet {
     pub fn new() -> Self {
-        let mut chars: Vec<char> = Vec::new();
+        let mut chars: HashSet<char> = HashSet::new();
+        chars.extend('a'..='z');
+        chars.extend('A'..='Z');
+        chars.extend('0'..='9');
 
-        for i in b'a'..=b'z' {
-            chars.push(char::from(i));
-        }
-
-        for i in b'A'..=b'Z' {
-            chars.push(char::from(i));
-        }
-
-        for i in b'0'..=b'9' {
-            chars.push(char::from(i));
-        }
+        // Remove visually similar characters
+        chars = &chars - &HashSet::from(['l', 'I', '1']);
+        chars = &chars - &HashSet::from(['B', '8']);
+        chars = &chars - &HashSet::from(['O', '0']);
 
         // We generate random passwords from this alphabet by getting a byte
         // of random data from the HSM and using this value to pick
@@ -101,7 +98,9 @@ impl Alphabet {
         // the u8::MAX or it will ignore characters after the u8::MAXth.
         assert!(usize::from(u8::MAX) > chars.len());
 
-        Alphabet { chars }
+        Alphabet {
+            chars: chars.into_iter().collect(),
+        }
     }
 
     pub fn get_char(&self, client: &Client) -> Result<char> {
