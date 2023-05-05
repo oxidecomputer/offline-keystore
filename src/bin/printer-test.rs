@@ -23,8 +23,11 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     RecoveryKeyShare {
+        #[clap(default_value_t = 1)]
         share_idx: usize,
+        #[clap(default_value_t = 5)]
         share_count: usize,
+        #[clap(default_value_t = 33)]
         data_len: usize,
     },
     HsmPassword {
