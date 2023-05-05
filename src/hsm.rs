@@ -624,36 +624,36 @@ pub fn print_share(
     // without printing so sending it first avoids any double printing.
 
     print_file.write_all(&[
-        ESC, '@' as u32 as u8, // Initialize Printer
-        ESC, 'x' as u32 as u8, 1, // Select NLQ mode
-        ESC, 'k' as u32 as u8, 1, // Select San Serif font
-        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
-        ESC, 'E' as u32 as u8, // Select Bold
+        ESC, b'@', // Initialize Printer
+        ESC, b'x', 1, // Select NLQ mode
+        ESC, b'k', 1, // Select San Serif font
+        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, b'E', // Select Bold
     ])?;
-    print_file.write_all("Oxide Offline Keystore".as_bytes())?;
+    print_file.write_all(b"Oxide Offline Keystore")?;
     print_file.write_all(&[
         CR, LF,
-        ESC, 'F' as u32 as u8, // Deselect Bold
-        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, b'F', // Deselect Bold
+        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
     ])?;
-    print_file.write_all("Recovery Key Share ".as_bytes())?;
+    print_file.write_all(b"Recovery Key Share ")?;
     print_file.write_all(&[
-        ESC, '-' as u32 as u8, 1, // Select underscore
+        ESC, b'-', 1, // Select underscore
     ])?;
     print_file.write_all((share_idx + 1).to_string().as_bytes())?;
     print_file.write_all(&[
-        ESC, '-' as u32 as u8, 0, // Deselect underscore
+        ESC, b'-', 0, // Deselect underscore
     ])?;
     print_file.write_all(" of ".as_bytes())?;
     print_file.write_all(&[
-        ESC, '-' as u32 as u8, 1, // Select underscore
+        ESC, b'-', 1, // Select underscore
     ])?;
     print_file.write_all(share_count.to_string().as_bytes())?;
     print_file.write_all(&[
-        ESC, '-' as u32 as u8, 0, // Deselect underscore
+        ESC, b'-', 0, // Deselect underscore
         CR, LF,
         CR, LF,
-        ESC, 'D' as u32 as u8, 8, 20, 32, 44, 0, // Set horizontal tab stops
+        ESC, b'D', 8, 20, 32, 44, 0, // Set horizontal tab stops
     ])?;
 
     for (i, chunk) in share_data
@@ -665,7 +665,7 @@ pub fn print_share(
         if i % 4 == 0 {
             print_file.write_all(&[CR, LF])?;
         }
-        print_file.write_all(&['\t' as u32 as u8])?;
+        print_file.write_all(&[b'\t'])?;
         print_file.write_all(chunk)?;
     }
 
@@ -707,23 +707,23 @@ pub fn print_password(
     // without printing so sending it first avoids any double printing.
 
     print_file.write_all(&[
-        ESC, '@' as u32 as u8, // Initialize Printer
-        ESC, 'x' as u32 as u8, 1, // Select NLQ mode
-        ESC, 'k' as u32 as u8, 1, // Select San Serif font
-        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
-        ESC, 'E' as u32 as u8, // Select Bold
+        ESC, b'@', // Initialize Printer
+        ESC, b'x', 1, // Select NLQ mode
+        ESC, b'k', 1, // Select San Serif font
+        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, b'E', // Select Bold
     ])?;
-    print_file.write_all("Oxide Offline Keystore".as_bytes())?;
+    print_file.write_all(b"Oxide Offline Keystore")?;
     print_file.write_all(&[
         CR, LF,
-        ESC, 'F' as u32 as u8, // Deselect Bold
-        ESC, '$' as u32 as u8, 112, 0, // Move to absolute horizontal position (0*256)+127
+        ESC, b'F', // Deselect Bold
+        ESC, b'$', 112, 0, // Move to absolute horizontal position (0*256)+127
     ])?;
-    print_file.write_all("HSM Password ".as_bytes())?;
+    print_file.write_all(b"HSM Password ")?;
     print_file.write_all(&[
         CR, LF,
         CR, LF,
-        ESC, 'D' as u32 as u8, 8, 20, 32, 44, 0, // Set horizontal tab stops
+        ESC, b'D', 8, 20, 32, 44, 0, // Set horizontal tab stops
         CR, LF,
     ])?;
 
@@ -735,7 +735,7 @@ pub fn print_password(
         if i % 4 == 0 {
             print_file.write_all(&[CR, LF])?;
         }
-        print_file.write_all(&['\t' as u32 as u8])?;
+        print_file.write_all(&[b'\t'])?;
         print_file.write_all(chunk)?;
     }
 
