@@ -7,5 +7,6 @@
     "hash":"Sha384",
     "label":"sidecar-rot-rel-b",
     "purpose":"RoTReleaseRoot",
-    "initial_serial_number": "3cc3000000000000000000000000000000000000"
+    "initial_serial_number": "3cc3000000000000000000000000000000000000",
+    "self_signed":true
 }
