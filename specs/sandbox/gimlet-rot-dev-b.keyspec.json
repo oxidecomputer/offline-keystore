@@ -1,0 +1,12 @@
+{
+    "common_name": "Gimlet RoT Sandbox Development Root B",
+    "id": 4,
+    "algorithm":"Rsa4096",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha256",
+    "label":"gimlet-rot-dev-b",
+    "purpose":"RoTDevelopmentRoot",
+    "initial_serial_number": "3cc3000000000000000000000000000000000000",
+    "self_signed":true
+}

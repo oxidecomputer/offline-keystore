@@ -1,0 +1,12 @@
+{
+    "common_name": "PSC RoT Sandbox Development Root A",
+    "id": 10,
+    "algorithm":"Rsa4096",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha256",
+    "label":"psc-rot-dev-a",
+    "purpose":"RoTDevelopmentRoot",
+    "initial_serial_number": "3cc3000000000000000000000000000000000000",
+    "self_signed":true
+}

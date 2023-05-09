@@ -1,0 +1,12 @@
+{
+    "common_name": "Sidecar RoT Sandbox Release Root B",
+    "id": 7,
+    "algorithm":"Rsa4096",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha256",
+    "label":"sidecar-rot-rel-b",
+    "purpose":"RoTReleaseRoot",
+    "initial_serial_number": "3cc3000000000000000000000000000000000000",
+    "self_signed":true
+}
