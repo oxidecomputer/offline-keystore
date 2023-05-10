@@ -53,6 +53,10 @@ enum Command {
         #[clap(long, env)]
         auth_id: Option<Id>,
 
+        /// Skip creation of a wrap key when initializing the HSM.
+        #[clap(long, env)]
+        no_backup: bool,
+
         #[command(subcommand)]
         command: HsmCommand,
     },
@@ -261,7 +265,7 @@ fn do_ceremony(
     let passwd_new = {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
-        let hsm = Hsm::new(1, &passwd, &args.output, &args.state)?;
+        let hsm = Hsm::new(1, &passwd, &args.output, &args.state, true)?;
 
         hsm.new_split_wrap(print_dev)?;
         info!("Collecting YubiHSM attestation cert.");
@@ -279,7 +283,7 @@ fn do_ceremony(
     };
     {
         // use new password to auth
-        let hsm = Hsm::new(2, &passwd_new, &args.output, &args.state)?;
+        let hsm = Hsm::new(2, &passwd_new, &args.output, &args.state, true)?;
         hsm.generate(key_spec)?;
     }
     // set env var for oks::ca module to pickup for PKCS11 auth
@@ -318,17 +322,29 @@ fn main() -> Result<()> {
                 oks::ca::sign(&csr_spec, &args.state, &args.output)
             }
         },
-        Command::Hsm { auth_id, command } => {
+        Command::Hsm {
+            auth_id,
+            command,
+            no_backup,
+        } => {
             let passwd = get_passwd(auth_id, &command)?;
             let auth_id = get_auth_id(auth_id, &command);
-            let hsm = Hsm::new(auth_id, &passwd, &args.output, &args.state)?;
+            let hsm = Hsm::new(
+                auth_id,
+                &passwd,
+                &args.output,
+                &args.state,
+                !no_backup,
+            )?;
 
             match command {
                 HsmCommand::Initialize {
                     print_dev,
                     passwd_challenge,
                 } => {
-                    hsm.new_split_wrap(&print_dev)?;
+                    if hsm.backup {
+                        hsm.new_split_wrap(&print_dev)?;
+                    }
                     let passwd_new = if passwd_challenge {
                         get_new_passwd(None)?
                     } else {

@@ -105,7 +105,7 @@ fn main() -> Result<()> {
                 Ok(k) => k,
                 Err(_) => return Err(anyhow::anyhow!("Invalid object type.")),
             };
-            oks::hsm::backup(&client, id, kind, file)
+            oks::hsm::backup_object(&client, id, kind, file)
         }
         Command::Delete { id, kind } => {
             // this is a bit weird but necessary because the Type type
