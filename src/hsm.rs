@@ -145,6 +145,7 @@ pub struct Hsm {
     pub out_dir: PathBuf,
     pub state_dir: PathBuf,
     pub alphabet: Alphabet,
+    pub backup: bool,
 }
 
 impl Hsm {
@@ -159,6 +160,7 @@ impl Hsm {
         passwd: &str,
         out_dir: &Path,
         state_dir: &Path,
+        backup: bool,
     ) -> Result<Self> {
         let config = UsbConfig {
             serial: None,
@@ -174,6 +176,7 @@ impl Hsm {
             out_dir: out_dir.to_path_buf(),
             state_dir: state_dir.to_path_buf(),
             alphabet: Alphabet::new(),
+            backup,
         })
     }
 
@@ -317,13 +320,15 @@ impl Hsm {
             auth_key,
         )?;
 
-        info!("Backing up new auth credential.");
-        backup(
-            &self.client,
-            AUTH_ID,
-            Type::AuthenticationKey,
-            &self.state_dir,
-        )?;
+        if self.backup {
+            info!("Backing up new auth credential.");
+            backup_object(
+                &self.client,
+                AUTH_ID,
+                Type::AuthenticationKey,
+                &self.state_dir,
+            )?;
+        }
 
         info!("Deleting default auth key.");
         self.client.delete_object(
@@ -360,7 +365,14 @@ impl Hsm {
 
             info!("Generating key for spec: {:?}", path);
             let id = self.generate_keyspec(&spec)?;
-            backup(&self.client, id, Type::AsymmetricKey, &self.state_dir)?;
+            if self.backup {
+                backup_object(
+                    &self.client,
+                    id,
+                    Type::AsymmetricKey,
+                    &self.state_dir,
+                )?;
+            }
         }
 
         Ok(())
@@ -498,7 +510,7 @@ impl Hsm {
 
 /// Provided a key ID and a object type this function will find the object
 /// in the HSM and generate the appropriate KeySpec for it.
-pub fn backup<P: AsRef<Path>>(
+pub fn backup_object<P: AsRef<Path>>(
     client: &Client,
     id: Id,
     kind: Type,
