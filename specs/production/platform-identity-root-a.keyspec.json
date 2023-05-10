@@ -1,0 +1,12 @@
+{
+    "common_name":"Platform Identity Root A",
+    "id":13,
+    "algorithm":"Ecp384",
+    "capabilities":"All",
+    "domain":"DOM1",
+    "hash":"Sha384",
+    "label":"platform-identity-root-a",
+    "purpose":"Identity",
+    "initial_serial_number":"0000000000000000000000000000000000000000",
+    "self_signed":true
+}
