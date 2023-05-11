@@ -549,7 +549,7 @@ pub fn sign_csrspec(
 /// Create the directory structure and initial files expected by the `openssl ca` tool.
 fn bootstrap_ca(key_spec: &KeySpec, pkcs11_path: &Path) -> Result<()> {
     // create directories expected by `openssl ca`: crl, newcerts
-    for dir in ["crl", "newcerts"] {
+    for dir in ["crl", "newcerts", "csr"] {
         debug!("creating directory: {}?", dir);
         fs::create_dir(dir)?;
     }
