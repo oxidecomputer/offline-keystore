@@ -222,7 +222,10 @@ pub fn initialize(
     }
 
     let connector = match transport {
-        Transport::Http => Some(start_connector()?),
+        // The yubihsm pkcs#11 module relies on the yubihsm-connector. If
+        // we've been using the Usb connector up to this point we assume the
+        // daemon is not running and that we must start it.
+        Transport::Usb => Some(start_connector()?),
         _ => None,
     };
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
@@ -423,7 +426,10 @@ pub fn sign(
     }
 
     let connector = match transport {
-        Transport::Http => Some(start_connector()?),
+        // The yubihsm pkcs#11 module relies on the yubihsm-connector. If
+        // we've been using the Usb connector up to this point we assume the
+        // daemon is not running and that we must start it.
+        Transport::Usb => Some(start_connector()?),
         _ => None,
     };
 
