@@ -24,11 +24,11 @@ use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
     wrap::{self, Message},
-    Capability, Client, Connector, Credentials, Domain, UsbConfig,
+    Capability, Client, Connector, Credentials, Domain, HttpConfig, UsbConfig,
 };
 use zeroize::Zeroizing;
 
-use crate::config::{self, KeySpec, KEYSPEC_EXT};
+use crate::config::{self, KeySpec, Transport, KEYSPEC_EXT};
 
 const WRAP_ID: Id = 1;
 
@@ -161,12 +161,22 @@ impl Hsm {
         out_dir: &Path,
         state_dir: &Path,
         backup: bool,
+        transport: Transport,
     ) -> Result<Self> {
-        let config = UsbConfig {
-            serial: None,
-            timeout_ms: Self::TIMEOUT_MS,
+        let connector = match transport {
+            Transport::Usb => {
+                let config = UsbConfig {
+                    serial: None,
+                    timeout_ms: Self::TIMEOUT_MS,
+                };
+                Connector::usb(&config)
+            }
+            Transport::Http => {
+                let config = HttpConfig::default();
+                Connector::http(&config)
+            }
         };
-        let connector = Connector::usb(&config);
+
         let credentials =
             Credentials::from_password(auth_id, passwd.as_bytes());
         let client = Client::open(connector, credentials, true)?;
