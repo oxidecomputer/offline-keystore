@@ -269,6 +269,24 @@ pub fn files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Transport {
+    Http,
+    Usb,
+}
+
+impl FromStr for Transport {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "http" => Ok(Transport::Http),
+            "usb" => Ok(Transport::Usb),
+            _ => Err(anyhow::anyhow!("Invalid transport string")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -21,7 +21,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 use crate::config::{
-    self, CsrSpec, KeySpec, Purpose, ENV_PASSWORD, KEYSPEC_EXT,
+    self, CsrSpec, KeySpec, Purpose, Transport, ENV_PASSWORD, KEYSPEC_EXT,
 };
 
 /// Name of file in root of a CA directory with key spec used to generate key
@@ -202,6 +202,7 @@ pub fn initialize(
     pkcs11_path: &Path,
     ca_state: &Path,
     out: &Path,
+    transport: Transport,
 ) -> Result<()> {
     let key_spec = fs::canonicalize(key_spec)?;
     debug!("canonical KeySpec path: {}", key_spec.display());
@@ -220,7 +221,10 @@ pub fn initialize(
         ));
     }
 
-    let mut connector = start_connector()?;
+    let connector = match transport {
+        Transport::Http => Some(start_connector()?),
+        _ => None,
+    };
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
 
     let tmp_dir = TempDir::new()?;
@@ -239,12 +243,16 @@ pub fn initialize(
         {
             // Ignore possible error from killing connector because we already
             // have an error to report and it'll be more interesting.
-            let _ = connector.kill();
+            if let Some(mut c) = connector {
+                let _ = c.kill();
+            }
             return Err(e);
         }
     }
 
-    connector.kill()?;
+    if connector.is_some() {
+        connector.unwrap().kill()?;
+    }
 
     // copy contents of temp directory to out
     debug!("tmpdir: {:?}", tmp_dir);
@@ -391,7 +399,12 @@ fn initialize_keyspec(
     Ok(())
 }
 
-pub fn sign(csr_spec: &Path, state: &Path, publish: &Path) -> Result<()> {
+pub fn sign(
+    csr_spec: &Path,
+    state: &Path,
+    publish: &Path,
+    transport: Transport,
+) -> Result<()> {
     let csr_spec = fs::canonicalize(csr_spec)?;
     debug!("canonical CsrSpec path: {}", &csr_spec.display());
 
@@ -409,7 +422,10 @@ pub fn sign(csr_spec: &Path, state: &Path, publish: &Path) -> Result<()> {
         ));
     }
 
-    let mut connector = start_connector()?;
+    let connector = match transport {
+        Transport::Http => Some(start_connector()?),
+        _ => None,
+    };
 
     passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
 
@@ -420,13 +436,17 @@ pub fn sign(csr_spec: &Path, state: &Path, publish: &Path) -> Result<()> {
         if let Err(e) = sign_csrspec(&path, &tmp_dir, state, publish) {
             // Ignore possible error from killing connector because we already
             // have an error to report and it'll be more interesting.
-            let _ = connector.kill();
+            if let Some(mut c) = connector {
+                let _ = c.kill();
+            }
             return Err(e);
         }
     }
 
     // kill connector
-    connector.kill()?;
+    if connector.is_some() {
+        connector.unwrap().kill()?;
+    }
 
     Ok(())
 }

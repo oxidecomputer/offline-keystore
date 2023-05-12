@@ -13,7 +13,7 @@ use std::{
 use yubihsm::object::{Id, Type};
 use zeroize::Zeroizing;
 
-use oks::config::{ENV_NEW_PASSWORD, ENV_PASSWORD};
+use oks::config::{Transport, ENV_NEW_PASSWORD, ENV_PASSWORD};
 use oks::hsm::{self, Hsm};
 
 const PASSWD_PROMPT: &str = "Enter new HSM password: ";
@@ -36,6 +36,10 @@ struct Args {
     /// Directory where we put KeySpec, CA state and backups
     #[clap(long, env, default_value = "ca-state")]
     state: PathBuf,
+
+    /// 'usb' or 'http'
+    #[clap(long, env, default_value = "usb")]
+    transport: Transport,
 
     /// subcommands
     #[command(subcommand)]
@@ -265,7 +269,14 @@ fn do_ceremony(
     let passwd_new = {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
-        let hsm = Hsm::new(1, &passwd, &args.output, &args.state, true)?;
+        let hsm = Hsm::new(
+            1,
+            &passwd,
+            &args.output,
+            &args.state,
+            true,
+            args.transport,
+        )?;
 
         hsm.new_split_wrap(print_dev)?;
         info!("Collecting YubiHSM attestation cert.");
@@ -283,13 +294,26 @@ fn do_ceremony(
     };
     {
         // use new password to auth
-        let hsm = Hsm::new(2, &passwd_new, &args.output, &args.state, true)?;
+        let hsm = Hsm::new(
+            2,
+            &passwd_new,
+            &args.output,
+            &args.state,
+            true,
+            args.transport,
+        )?;
         hsm.generate(key_spec)?;
     }
     // set env var for oks::ca module to pickup for PKCS11 auth
     env::set_var(ENV_PASSWORD, &passwd_new);
-    oks::ca::initialize(key_spec, pkcs11_path, &args.state, &args.output)?;
-    oks::ca::sign(csr_spec, &args.state, &args.output)
+    oks::ca::initialize(
+        key_spec,
+        pkcs11_path,
+        &args.state,
+        &args.output,
+        args.transport,
+    )?;
+    oks::ca::sign(csr_spec, &args.state, &args.output, args.transport)
 }
 
 fn main() -> Result<()> {
@@ -317,10 +341,14 @@ fn main() -> Result<()> {
                 &pkcs11_path,
                 &args.state,
                 &args.output,
+                args.transport,
             ),
-            CaCommand::Sign { csr_spec } => {
-                oks::ca::sign(&csr_spec, &args.state, &args.output)
-            }
+            CaCommand::Sign { csr_spec } => oks::ca::sign(
+                &csr_spec,
+                &args.state,
+                &args.output,
+                args.transport,
+            ),
         },
         Command::Hsm {
             auth_id,
@@ -335,6 +363,7 @@ fn main() -> Result<()> {
                 &args.output,
                 &args.state,
                 !no_backup,
+                args.transport,
             )?;
 
             match command {
@@ -342,6 +371,7 @@ fn main() -> Result<()> {
                     print_dev,
                     passwd_challenge,
                 } => {
+                    debug!("Initialize");
                     if hsm.backup {
                         hsm.new_split_wrap(&print_dev)?;
                     }
