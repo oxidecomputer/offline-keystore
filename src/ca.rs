@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use fs_extra::dir::CopyOptions;
 use log::{debug, error, info, warn};
 use std::{
@@ -10,7 +10,7 @@ use std::{
     fs::{self, OpenOptions, Permissions},
     io,
     os::unix::fs::PermissionsExt,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     str::FromStr,
     thread,
@@ -18,22 +18,33 @@ use std::{
 };
 use tempfile::{NamedTempFile, TempDir};
 use thiserror::Error;
+use yubihsm::Client;
 use zeroize::Zeroizing;
 
-use crate::config::{
-    self, CsrSpec, KeySpec, Purpose, Transport, ENV_PASSWORD, KEYSPEC_EXT,
+use crate::{
+    config::{
+        self, CsrSpec, DcsrSpec, KeySpec, Purpose, Transport, ENV_PASSWORD,
+        KEYSPEC_EXT,
+    },
+    hsm::Hsm,
 };
 
 /// Name of file in root of a CA directory with key spec used to generate key
 /// in HSM.
 const CA_KEY_SPEC: &str = "key.spec";
 
+/// Name of file in root of a CA directory containing the CA's own certificate.
+const CA_CERT: &str = "ca.cert.pem";
+
 const CSRSPEC_EXT: &str = ".csrspec.json";
+const DCSRSPEC_EXT: &str = ".dcsrspec.json";
 
 #[derive(Error, Debug)]
 pub enum CaError {
     #[error("Invalid path to CsrSpec file")]
     BadCsrSpecPath,
+    #[error("Invalid path to DcsrSpec file")]
+    BadDcsrSpecPath,
     #[error("Invalid purpose for root CA key")]
     BadPurpose,
     #[error("path not a directory")]
@@ -169,6 +180,14 @@ fn passwd_to_env(env_str: &str) -> Result<()> {
     std::env::set_var(env_str, password);
 
     Ok(())
+}
+
+fn passwd_from_env(env_str: &str) -> Result<String> {
+    Ok(std::env::var(env_str)?
+            .strip_prefix("0002")
+            .ok_or_else(|| anyhow!("Missing key identifier prefix in environment variable \"{env_str}\" that is expected to contain an HSM password"))?
+            .to_string()
+        )
 }
 
 /// Start the yubihsm-connector process.
@@ -403,25 +422,29 @@ fn initialize_keyspec(
 }
 
 pub fn sign(
-    csr_spec: &Path,
+    spec: &Path,
     state: &Path,
     publish: &Path,
     transport: Transport,
 ) -> Result<()> {
-    let csr_spec = fs::canonicalize(csr_spec)?;
-    debug!("canonical CsrSpec path: {}", &csr_spec.display());
+    let spec = fs::canonicalize(spec)?;
+    debug!("canonical spec path: {}", &spec.display());
 
-    let paths = if csr_spec.is_file() {
-        vec![csr_spec.clone()]
+    let paths = if spec.is_file() {
+        vec![spec.clone()]
     } else {
-        config::files_with_ext(&csr_spec, CSRSPEC_EXT)?
+        config::files_with_ext(&spec, CSRSPEC_EXT)?
+            .into_iter()
+            .chain(config::files_with_ext(&spec, DCSRSPEC_EXT)?.into_iter())
+            .collect::<Vec<PathBuf>>()
     };
 
     if paths.is_empty() {
         return Err(anyhow::anyhow!(
-            "no files with extension \"{}\" found in dir: {}",
+            "no files with extensions \"{}\" or \"{}\" found in dir: {}",
             CSRSPEC_EXT,
-            &csr_spec.display()
+            DCSRSPEC_EXT,
+            &spec.display()
         ));
     }
 
@@ -437,15 +460,40 @@ pub fn sign(
 
     let tmp_dir = TempDir::new()?;
     for path in paths {
-        // process csr spec
-        info!("Signing CSR from CsrSpec: {:?}", path);
-        if let Err(e) = sign_csrspec(&path, &tmp_dir, state, publish) {
-            // Ignore possible error from killing connector because we already
-            // have an error to report and it'll be more interesting.
-            if let Some(mut c) = connector {
-                let _ = c.kill();
+        let filename = path.file_name().unwrap().to_string_lossy();
+
+        if filename.ends_with(CSRSPEC_EXT) {
+            // process csr spec
+            info!("Signing CSR from CsrSpec: {:?}", path);
+            if let Err(e) = sign_csrspec(&path, &tmp_dir, state, publish) {
+                // Ignore possible error from killing connector because we already
+                // have an error to report and it'll be more interesting.
+                if let Some(mut c) = connector {
+                    let _ = c.kill();
+                }
+                return Err(e);
             }
-            return Err(e);
+        } else if filename.ends_with(DCSRSPEC_EXT) {
+            let hsm = Hsm::new(
+                0x0002,
+                &passwd_from_env("OKM_HSM_PKCS11_AUTH")?,
+                publish,
+                state,
+                false,
+                transport,
+            )?;
+
+            info!("Signing DCSR from DcsrSpec: {:?}", path);
+            if let Err(e) = sign_dcsrspec(&path, &hsm.client, state, publish) {
+                // Ignore possible error from killing connector because we already
+                // have an error to report and it'll be more interesting.
+                if let Some(mut c) = connector {
+                    let _ = c.kill();
+                }
+                return Err(e);
+            }
+        } else {
+            error!("Unknown input spec: {}", path.display());
         }
     }
 
@@ -568,6 +616,96 @@ pub fn sign_csrspec(
     }
 
     std::env::set_current_dir(pwd)?;
+
+    Ok(())
+}
+
+fn sign_dcsrspec(
+    dcsr_spec_path: &Path,
+    client: &Client,
+    state: &Path,
+    publish: &Path,
+) -> Result<()> {
+    let dcsr_spec_json =
+        std::fs::read_to_string(dcsr_spec_path).with_context(|| {
+            format!(
+                "Failed to read DcsrSpec json from {}",
+                dcsr_spec_path.display()
+            )
+        })?;
+    let dcsr_spec: DcsrSpec = serde_json::from_str(&dcsr_spec_json)
+        .context("Failed to deserialize DcsrSpec from json")?;
+
+    let root_cert_paths = dcsr_spec
+        .root_labels
+        .iter()
+        .map(|x| state.join(x.to_string()).join(CA_CERT))
+        .collect::<Vec<PathBuf>>();
+    let root_certs = lpc55_sign::cert::read_certs(&root_cert_paths)
+        .context("Failed to get certs for DCSR root labels.")?;
+
+    // Load signer's public key
+    let mut signer_public_key = None;
+    for (idx, label) in dcsr_spec.root_labels.iter().enumerate() {
+        if *label == dcsr_spec.label {
+            if let Some(x) = root_certs.get(idx) {
+                signer_public_key = Some(lpc55_sign::cert::public_key(x)?)
+            }
+        }
+    }
+    let signer_public_key = signer_public_key.ok_or_else(|| {
+        anyhow!(
+            "DcsrSpec label \"{}\" must also be one of the root labels",
+            dcsr_spec.label
+        )
+    })?;
+
+    // Load signing key's KeySpec
+    let key_spec = state.join(dcsr_spec.label.to_string()).join(CA_KEY_SPEC);
+
+    debug!("Getting KeySpec from: {}", key_spec.display());
+    let json = fs::read_to_string(key_spec)?;
+    debug!("spec as json: {}", json);
+
+    let key_spec = KeySpec::from_str(&json)?;
+    debug!("KeySpec: {:#?}", key_spec);
+
+    // Get prefix from DcsrSpec file. We us this to generate file names for the
+    // output file.
+    let dcsr_filename = match dcsr_spec_path
+        .file_name()
+        .ok_or(CaError::BadDcsrSpecPath)?
+        .to_os_string()
+        .into_string()
+    {
+        Ok(s) => s,
+        Err(_) => return Err(CaError::BadCsrSpecPath.into()),
+    };
+    let dcsr_prefix = match dcsr_filename.find('.') {
+        Some(i) => dcsr_filename[..i].to_string(),
+        None => dcsr_filename,
+    };
+
+    // Construct the to-be-signed debug credential
+    let dc_tbs = lpc55_sign::debug_auth::debug_credential_tbs(
+        root_certs,
+        signer_public_key,
+        dcsr_spec.dcsr,
+    )?;
+
+    // Sign it using the private key stored in the HSM.
+    let dc_sig = client.sign_rsa_pkcs1v15_sha256(key_spec.id, &dc_tbs)?;
+
+    // Append the signature to the TBS debug credential to make a complete debug
+    // credential
+    let mut dc = Vec::new();
+    dc.extend_from_slice(&dc_tbs);
+    dc.extend_from_slice(&dc_sig.into_vec());
+
+    // Write the debug credential to the output directory
+    let dc_path = publish.join(format!("{}.dc.bin", dcsr_prefix));
+    debug!("writing debug credential to: {}", dc_path.display());
+    std::fs::write(dc_path, &dc)?;
 
     Ok(())
 }
