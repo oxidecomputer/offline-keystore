@@ -7,28 +7,28 @@ A utility and library for managing and interacting with the offline keystore.
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.69"
-clap = { version = "4.1.6", features = ["derive", "env"] }
-env_logger = "0.10.0"
+anyhow = "1.0.81"
+clap = { version = "4.3.19", features = ["derive", "env"] }
+env_logger = "0.10.2"
 fs_extra = "1.3.0"
 hex = { version = "0.4.3", features = ["serde"] }
-log = "0.4.17"
-num-bigint = "0.4.3"
+log = "0.4.21"
+num-bigint = "0.4.4"
 # p256 v0.13 has a dependency that requires rustc 1.65 but we're pinned
 # to 1.64 till offline-keystore-os supports it
 p256 = "0.12"
 pem-rfc7468 = { version = "0.7.0", features = ["alloc", "std"] }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
-rpassword = "7.2.0"
-serde = "1.0.153"
-serde_json = "1.0.94"
+rpassword = "7.3.1"
+serde = "1.0.197"
+serde_json = "1.0.114"
 static_assertions = "1.1.0"
-tempfile = "3.4.0"
-textwrap = "0.16.0"
-thiserror = "1.0.39"
+tempfile = "3.10.1"
+textwrap = "0.16.1"
+thiserror = "1.0.58"
 # vsss-rs v3 has a dependency that requires rustc 1.65 but we're pinned
 # to 1.64 till offline-keystore-os supports it
 vsss-rs = "2.7.1"
 yubihsm = { version = "0.41.0", features = ["usb"] }
-zeroize = "1.5.7"
+zeroize = "1.7.0"
