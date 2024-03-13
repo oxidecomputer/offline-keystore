@@ -339,7 +339,7 @@ fn initialize_keyspec(
         .arg("-passin")
         .arg("env:OKM_HSM_PKCS11_AUTH")
         .arg("-out")
-        .arg(&csr.path())
+        .arg(csr.path())
         .output()?;
 
     debug!("executing command: \"{:#?}\"", cmd);
@@ -375,7 +375,7 @@ fn initialize_keyspec(
             .arg("-passin")
             .arg("env:OKM_HSM_PKCS11_AUTH")
             .arg("-in")
-            .arg(&csr.path())
+            .arg(csr.path())
             .arg("-out")
             .arg("ca.cert.pem")
             .output()?;
