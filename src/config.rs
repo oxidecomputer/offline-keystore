@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use log::{error, warn};
+use lpc55_sign::debug_auth::DebugCredentialSigningRequest;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -267,6 +268,18 @@ pub fn files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
     }
 
     Ok(paths)
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DcsrSpec {
+    /// The key / CA that should be used to sign the CSR.
+    pub label: Label,
+
+    /// Root keys matching those registered in target device's CMPA.
+    pub root_labels: Vec<Label>,
+
+    /// The DCSR to be signed
+    pub dcsr: DebugCredentialSigningRequest,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
