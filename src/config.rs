@@ -270,12 +270,24 @@ pub fn files_with_ext(dir: &Path, ext: &str) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+serde_with::serde_conv!(
+    LabelAsString,
+    Label,
+    |label: &Label| label.to_string(),
+    |string: String| -> Result<Label, anyhow::Error> {
+        Ok(Label::from(string.as_str()))
+    }
+);
+
+#[serde_with::serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DcsrSpec {
     /// The key / CA that should be used to sign the CSR.
+    #[serde_as(as = "LabelAsString")]
     pub label: Label,
 
     /// Root keys matching those registered in target device's CMPA.
+    #[serde_as(as = "Vec<LabelAsString>")]
     pub root_labels: Vec<Label>,
 
     /// The DCSR to be signed
