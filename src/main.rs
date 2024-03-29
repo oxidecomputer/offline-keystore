@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 use oks::config::{Transport, ENV_NEW_PASSWORD, ENV_PASSWORD};
 use oks::hsm::{self, Hsm};
 
-const PASSWD_PROMPT: &str = "Enter new HSM password: ";
+const PASSWD_PROMPT: &str = "Enter new password: ";
 const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
 
 const GEN_PASSWD_LENGTH: usize = 16;
