@@ -474,7 +474,7 @@ pub fn sign(
                 return Err(e);
             }
         } else if filename.ends_with(DCSRSPEC_EXT) {
-            let hsm = Hsm::new(
+            let mut hsm = Hsm::new(
                 0x0002,
                 &passwd_from_env("OKM_HSM_PKCS11_AUTH")?,
                 publish,
@@ -492,6 +492,7 @@ pub fn sign(
                 }
                 return Err(e);
             }
+            hsm.client.close_session()?;
         } else {
             error!("Unknown input spec: {}", path.display());
         }
