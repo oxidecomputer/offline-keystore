@@ -3,9 +3,13 @@
 . oks-lib.sh
 
 DST=input
+CA_STATE=ca-state
 
 info "Creating input directory: $DST"
 mkdir -p "$DST"
 
-info "Mounting /dev/cdrom to: $DST"
+info "Mounting /dev/cdrom at: $DST"
 mount -o ro /dev/cdrom "$DST"
+
+info "Restoing CA state data to: $CA_STATE"
+cp -R "$DST"/"$CA_STATE" ./
