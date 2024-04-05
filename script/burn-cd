@@ -12,11 +12,10 @@ set -euo pipefail
 command_on_path mkisofs
 command_on_path cdrecord
 
-DIR="$1"
-if [[ ! -e "$DIR" ]] || [[ ! -d "$DIR" ]]; then
-    error "path provided is not a directory: $DIR"
-    exit 1
-fi
+CA_STATE="ca-state"
+OUTPUT="output"
+
+cp -R "$CA_STATE" "$OUTPUT"/
 
 TMP_DIR=$(mktemp --directory)
 trap 'rm -rf -- "$TMP_DIR"' EXIT
@@ -24,8 +23,8 @@ trap 'rm -rf -- "$TMP_DIR"' EXIT
 ISO=$TMP_DIR/temp.iso
 
 # generate iso from directory
-info "generating iso from directory \"$DIR\""
-fail_with_stderr mkisofs -r -iso-level 4 -o "$ISO" "$DIR" > /dev/null
+info "generating iso from directory \"$OUTPUT\""
+fail_with_stderr mkisofs -r -iso-level 4 -o "$ISO" "$OUTPUT" > /dev/null
 
 if [ ! -f "$ISO" ]; then
     error "ISO successfully created but \"$ISO\" is not a file"
