@@ -5,6 +5,11 @@
 DST=input
 CA_STATE=ca-state
 
+if [ -z "${OKS_PKCS11_PATH}" ]; then
+    error "OKS_PKCS11_PATH not set"
+    exit 1
+fi
+
 info "Creating input directory: $DST"
 mkdir -p "$DST"
 
@@ -13,3 +18,9 @@ mount -o ro /dev/cdrom "$DST"
 
 info "Restoing CA state data to: $CA_STATE"
 cp -R "$DST"/"$CA_STATE" ./
+chmod -R u+w "$CA_STATE"
+
+# fixup pkcs11 moule path in openssl.cnf
+find "$CA_STATE" -name 'openssl.cnf' | while read -r OPENSSL_CNF; do
+    sed --in-place "s&\(^MODULE_PATH\s\+=\s\).*\.so\s*\$&\1${OKS_PKCS11_PATH}&" "$OPENSSL_CNF"
+done
