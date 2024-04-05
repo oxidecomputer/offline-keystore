@@ -8,7 +8,7 @@ error() {
 }
 
 info() {
-    command echo ["$(date --utc +%FT%TZ)" INFO "${0##*/}"] "$@"
+    command echo -e ["$(date --utc +%FT%TZ)" INFO "${0##*/}"] "$@"
 }
 
 # check that a given command is on PATH, if not exit 1
