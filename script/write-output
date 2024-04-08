@@ -15,6 +15,7 @@ command_on_path cdrecord
 CA_STATE="ca-state"
 OUTPUT="output"
 
+info "copying ca-state dir to \"$OUTPUT\""
 cp -R "$CA_STATE" "$OUTPUT"/
 
 TMP_DIR=$(mktemp --directory)
@@ -32,7 +33,7 @@ fi
 
 # get hash of iso
 ISO_HASH=$(sha256sum "$ISO" | awk '{print $1}')
-info "ISO has hash sha256-$ISO_HASH"
+info "ISO has digest sha256-$ISO_HASH"
 
 # cdrecord is noisy on both stdio and stderr. We can't redirect stderr while
 # using 'fail_with_msg' so we do it manually.
