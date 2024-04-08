@@ -32,7 +32,12 @@ if [ ! -f "$ISO" ]; then
 fi
 
 # get hash of iso
-ISO_HASH=$(sha256sum "$ISO" | awk '{print $1}')
+ISO_HASH=$(
+    sha256sum "$ISO" | awk '{print $1}' \
+        | awk '{gsub(/.{2}/,"& ")}1' \
+        | sed 's/ /\n/8;P;D' \
+        | head -c -1
+)
 info "ISO has digest sha256-$ISO_HASH"
 
 # cdrecord is noisy on both stdio and stderr. We can't redirect stderr while
