@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+while read -rsp "Enter password: " OKS_PASSWORD; do
+    export OKS_PASSWORD
+
+    if ! SN=$(oks hsm --auth-id 2 serial-number 2> /dev/null); then
+        echo "incorrect password, please try again ..."
+    else
+        echo -e "successful password entry for YubiHSM w/ serial number $SN"
+        
+        read -rsp "When prompted by the MC, Press the \"Enter\" key to commence the signing ceremony"
+        echo ""
+        break
+    fi
+done
+
+oks ca sign
