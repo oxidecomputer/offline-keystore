@@ -6,7 +6,7 @@ while read -rsp "Enter password: " OKS_PASSWORD; do
     if ! SN=$(oks hsm --auth-id 2 serial-number 2> /dev/null); then
         echo "incorrect password, please try again ..."
     else
-        echo -e "successful password entry for YubiHSM w/ serial number $SN"
+        echo -e "success!"
         
         read -rsp "When prompted by the MC, Press the \"Enter\" key to commence the signing ceremony"
         echo ""
@@ -14,4 +14,5 @@ while read -rsp "Enter password: " OKS_PASSWORD; do
     fi
 done
 
+echo "commencing siging ceremony w/ YubiHSM serial number $SN"
 oks ca sign
