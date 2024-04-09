@@ -38,7 +38,7 @@ ISO_HASH=$(
         | sed 's/ /\n/8;P;D' \
         | head -c -1
 )
-info "ISO has digest sha256-$ISO_HASH"
+info "ISO has sha256 digest:\n$ISO_HASH"
 
 # cdrecord is noisy on both stdio and stderr. We can't redirect stderr while
 # using 'fail_with_msg' so we do it manually.
