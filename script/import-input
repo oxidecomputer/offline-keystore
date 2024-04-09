@@ -16,7 +16,7 @@ mkdir -p "$DST"
 info "Mounting /dev/cdrom at: $DST"
 mount -o ro /dev/cdrom "$DST"
 
-info "Restoing CA state data to: $CA_STATE"
+info "Restoring CA state data to: $CA_STATE"
 cp -R "$DST"/"$CA_STATE" ./
 chmod -R u+w "$CA_STATE"
 
