@@ -150,9 +150,9 @@ pub struct Hsm {
 
 impl Hsm {
     // 5 minute to support RSA4K key generation
-    // NOTE: RSA key generation is very taxing on the PRNG in the YubiHSM.
-    // It's also highly variable (unpredictable even). In practice we see
-    // RSA4K keys take anywhere from less than 1 minute to over 4 minutes.
+    // NOTE: RSA key generation takes a lot of time on the YubiHSM. It's also
+    // highly viariable: in practice we've seen RSA4K key generation take
+    // anywhere from less than 1 minute to over 5 minutes.
     const TIMEOUT_MS: u64 = 300000;
 
     pub fn new(
