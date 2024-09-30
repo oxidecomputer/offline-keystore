@@ -435,7 +435,7 @@ pub fn sign(
     } else {
         config::files_with_ext(&spec, CSRSPEC_EXT)?
             .into_iter()
-            .chain(config::files_with_ext(&spec, DCSRSPEC_EXT)?.into_iter())
+            .chain(config::files_with_ext(&spec, DCSRSPEC_EXT)?)
             .collect::<Vec<PathBuf>>()
     };
 
