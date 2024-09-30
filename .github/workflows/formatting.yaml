@@ -10,5 +10,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           components: rustfmt
-          toolchain: 1.69.0
+          toolchain: 1.79
       - run: cargo fmt --check
