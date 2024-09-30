@@ -733,7 +733,11 @@ fn bootstrap_ca(key_spec: &KeySpec, pkcs11_path: &Path) -> Result<()> {
     // touch 'index.txt' file
     let index = "index.txt";
     debug!("touching file {}", index);
-    OpenOptions::new().create(true).write(true).open(index)?;
+    OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(index)?;
 
     // write initial serial number to 'serial' (echo 1000 > serial)
     let serial = "serial";
