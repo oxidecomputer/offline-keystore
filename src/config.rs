@@ -8,6 +8,7 @@ use lpc55_sign::debug_auth::DebugCredentialSigningRequest;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
+    fmt::{self, Display, Formatter},
     fs,
     path::{Path, PathBuf},
     str::FromStr,
@@ -119,8 +120,8 @@ pub enum Purpose {
 
 /// NOTE: These strings correspond to config sections for v3 extensions in the
 /// openssl.cnf.
-impl ToString for Purpose {
-    fn to_string(&self) -> String {
+impl Display for Purpose {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let str = match self {
             Purpose::RoTReleaseRoot => "v3_rot_release_root",
             Purpose::RoTDevelopmentRoot => "v3_rot_development_root",
@@ -128,7 +129,7 @@ impl ToString for Purpose {
             Purpose::RoTDevelopmentCodeSigning => "v3_code_signing_dev",
             Purpose::Identity => "v3_identity",
         };
-        String::from(str)
+        write!(f, "{}", str)
     }
 }
 
