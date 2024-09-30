@@ -34,4 +34,4 @@ thiserror = "1.0.64"
 # to 1.64 till offline-keystore-os supports it
 vsss-rs = "2.7.1"
 yubihsm = { git = "https://github.com/oxidecomputer/yubihsm.rs", branch = "session-close", features = ["usb", "untested"] }
-zeroize = "1.7.0"
+zeroize = "1.8.1"
