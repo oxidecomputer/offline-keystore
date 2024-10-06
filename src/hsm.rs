@@ -811,3 +811,125 @@ pub fn print_password(
     print_file.write_all(&[CR, FF])?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // secret split into the feldman verifier & shares below
+    const SECRET: &str =
+        "f259a45c17624b9317d8e292050c46a0f3d7387724b4cd26dd94f8bd3d1c0e1a";
+
+    // verifier created and serialized to json by `new_split_wrap`
+    const VERIFIER: &str = r#"
+    {
+        "generator": "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "commitments": [
+            "02315e9e3cd76d0917ecd60378b75259bbdf2e35a31f46c05a497409d5d89c69dc",
+            "0250e4e04d42e92bc15eecbe0789f5ac4831abe962df6b1eaed897e4634df702e3",
+            "02dfc3c60074cb4896163e7e188f8ec93d3bd1e2fd2ed68854c9324e4a56e94cc7"
+        ]
+    }"#;
+
+    // shares dumped to the printer by `new_split_wrap`
+    const SHARE_ARRAY: [&str; SHARES] = [
+        "01 b5b7dd6a 8ef8762f 0f266784 be191202 7b8a4b21 72fcb410 f28b2e1a e3669f9c",
+        "02 042cfd2b 1ede9e78 d7827065 2d8c20ef 1cb43bf1 c722f2e3 a08ac387 b57b18f8",
+        "03 ddb9039b c714c472 70ecfd33 53657366 51230043 6f56c6a8 cf074e89 ac1fc4d0",
+        "04 425bf0bf 879ae818 db660def 2fa509f8 e221a80d 765153d1 a2d34dd7 d22d3321",
+        "05 3215c494 6071096e 16eda298 c24ae4a6 497e28ab 2a41d768 036261f8 2063ae8d",
+    ];
+
+    fn secret_bytes() -> [u8; KEY_LEN] {
+        let mut secret = [0u8; KEY_LEN];
+        hex::decode_to_slice(SECRET, &mut secret).unwrap();
+
+        secret
+    }
+
+    fn deserialize_share(share: &str) -> Result<Share<{ KEY_LEN + 1 }>> {
+        // filter out whitespace to keep hex::decode happy
+        let share: String =
+            share.chars().filter(|c| !c.is_whitespace()).collect();
+        let share = hex::decode(share)?;
+
+        Ok(Share::try_from(&share[..])?)
+    }
+
+    #[test]
+    fn round_trip() -> Result<()> {
+        use rand::rngs::ThreadRng;
+
+        let secret = secret_bytes();
+        let secret_key = SecretKey::from_be_bytes(&secret)?;
+        let nzs = secret_key.to_nonzero_scalar();
+
+        let mut rng = ThreadRng::default();
+        let (shares, verifier) = Feldman::<THRESHOLD, SHARES>::split_secret::<
+            Scalar,
+            ProjectivePoint,
+            ThreadRng,
+            { KEY_LEN + 1 },
+        >(*nzs.as_ref(), None, &mut rng)
+        .map_err(|e| anyhow::anyhow!("failed to split secret: {}", e))?;
+
+        for s in &shares {
+            assert!(verifier.verify(s));
+        }
+
+        let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
+            Scalar,
+            { KEY_LEN + 1 },
+        >(&shares)
+        .map_err(|e| anyhow::anyhow!("failed to combine secret: {}", e))?;
+
+        let nzs_dup = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
+        let sk_dup = SecretKey::from(nzs_dup);
+        let new_secret: [u8; KEY_LEN] = sk_dup.to_be_bytes().try_into()?;
+
+        assert_eq!(new_secret, secret);
+
+        Ok(())
+    }
+
+    // deserialize a verifier & use it to verify the shares in SHARE_ARRAY
+    #[test]
+    fn verify_shares() -> Result<()> {
+        use vsss_rs::FeldmanVerifier;
+
+        let verifier: FeldmanVerifier<
+            Scalar,
+            ProjectivePoint,
+            { KEY_LEN + 1 },
+        > = serde_json::from_str(VERIFIER)?;
+
+        for share in SHARE_ARRAY {
+            let share = deserialize_share(share)?;
+            assert!(verifier.verify(&share));
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn recover_secret() -> Result<()> {
+        let mut shares: Vec<Share<{ KEY_LEN + 1 }>> = Vec::new();
+        for share in SHARE_ARRAY {
+            shares.push(deserialize_share(share)?);
+        }
+
+        let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
+            Scalar,
+            { KEY_LEN + 1 },
+        >(&shares)
+        .map_err(|e| anyhow::anyhow!("failed to combine secret: {}", e))?;
+
+        let nzs_dup = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
+        let sk_dup = SecretKey::from(nzs_dup);
+        let secret: [u8; KEY_LEN] = sk_dup.to_be_bytes().try_into()?;
+
+        assert_eq!(secret, secret_bytes());
+
+        Ok(())
+    }
+}
