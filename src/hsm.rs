@@ -940,9 +940,11 @@ mod tests {
         // filter out whitespace to keep hex::decode happy
         let share: String =
             share.chars().filter(|c| !c.is_whitespace()).collect();
-        let share = hex::decode(share)?;
+        let share = hex::decode(share)
+            .context("failed to decode share from hex string")?;
 
-        Ok(Share::try_from(&share[..])?)
+        Ok(Share::try_from(&share[..])
+            .context("Failed to construct Share from bytes.")?)
     }
 
     #[test]
@@ -984,13 +986,12 @@ mod tests {
     // deserialize a verifier & use it to verify the shares in SHARE_ARRAY
     #[test]
     fn verify_shares() -> Result<()> {
-        use vsss_rs::FeldmanVerifier;
-
         let verifier: FeldmanVerifier<
             Scalar,
             ProjectivePoint,
             { KEY_LEN + 1 },
-        > = serde_json::from_str(VERIFIER)?;
+        > = serde_json::from_str(VERIFIER)
+            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
         for share in SHARE_ARRAY {
             let share = deserialize_share(share)?;
