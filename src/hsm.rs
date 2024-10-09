@@ -14,12 +14,12 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::{
     fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
 };
 use thiserror::Error;
-use vsss_rs::{Feldman, Share};
+use vsss_rs::{Feldman, FeldmanVerifier, Share};
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
@@ -423,28 +423,117 @@ impl Hsm {
     pub fn restore_wrap(&self) -> Result<()> {
         info!("Restoring HSM from backup");
         info!("Restoring backup / wrap key from shares");
-        let mut shares: Vec<[u8; KEY_LEN + 1]> = Vec::new();
+        // vector used to collect shares
+        let mut shares: Vec<Share<{ KEY_LEN + 1 }>> = Vec::new();
 
-        for i in 1..=THRESHOLD {
-            print!("Enter share[{}]: ", i);
-            io::stdout().flush()?;
-            shares.push(
-                // This unwrap will panic if there are no lines remaining
-                // which AFAIK means stdin was closed. Not much else to do.
-                hex::decode(io::stdin().lines().next().unwrap()?)?
-                    .try_into()
-                    .map_err(|_| HsmError::BadKeyShare)?,
-            );
+        // deserialize verifier:
+        // verifier was serialized to output/verifier.json in the provisioning ceremony
+        // it must be included in and deserialized from the ceremony inputs
+        let verifier = self.out_dir.join("verifier.json");
+        let verifier = fs::read_to_string(verifier)?;
+        let verifier: FeldmanVerifier<
+            Scalar,
+            ProjectivePoint,
+            { KEY_LEN + 1 },
+        > = serde_json::from_str(&verifier)?;
+
+        // get enough shares to recover backup key
+        for _ in 1..=THRESHOLD {
+            // attempt to get a single share until the custodian enters a
+            // share that we can verify
+            loop {
+                // clear the screen, move cursor to (0,0), & prompt user
+                print!("\x1B[2J\x1B[1;1H");
+                print!("Enter share\n: ");
+                io::stdout().flush()?;
+                // get share from stdin
+                let mut share = String::new();
+                let share = match io::stdin().read_line(&mut share) {
+                    Ok(count) => match count {
+                        0 => {
+                            // Ctrl^D / EOF
+                            continue;
+                        }
+                        // 33 bytes -> 66 characters + 1 newline
+                        67 => share,
+                        _ => {
+                            print!(
+                                "\nexpected 67 characters, got {}.\n\n\
+                                Press any key to try again ...",
+                                share.len()
+                            );
+                            io::stdout().flush()?;
+
+                            // wait for a keypress / 1 byte from stdin
+                            let _ = io::stdin().read(&mut [0u8]).unwrap();
+                            continue;
+                        }
+                    },
+                    Err(e) => {
+                        print!(
+                            "Error from `Stdin::read_line`: {}\n\n\
+                            Press any key to try again ...",
+                            e
+                        );
+                        io::stdout().flush()?;
+
+                        // wait for a keypress / 1 byte from stdin
+                        let _ = io::stdin().read(&mut [0u8]).unwrap();
+                        continue;
+                    }
+                };
+
+                // drop all whitespace from line entered, interpret it as a
+                // hex string that we decode
+                let share: String =
+                    share.chars().filter(|c| !c.is_whitespace()).collect();
+                let share_vec = match hex::decode(share) {
+                    Ok(share) => share,
+                    Err(_) => {
+                        println!(
+                            "Failed to decode Share. The value entered \
+                                 isn't a valid hex string: try again."
+                        );
+                        continue;
+                    }
+                };
+
+                // construct a Share from the decoded hex string
+                let share: Share<{ KEY_LEN + 1 }> =
+                    match Share::try_from(&share_vec[..]) {
+                        Ok(share) => share,
+                        Err(_) => {
+                            println!(
+                                "Failed to convert share entered to Share \
+                                type. The value entered is the wrong length \
+                                ... try again."
+                            );
+                            continue;
+                        }
+                    };
+
+                if verifier.verify(&share) {
+                    // if we're going to switch from paper to CDs for key
+                    // share persistence this is the most obvious place to
+                    // put a keyshare on to a CD w/ lots of refactoring
+                    shares.push(share);
+                    print!(
+                        "\nShare verified!\n\nPress any key to continue ..."
+                    );
+                    io::stdout().flush()?;
+
+                    // wait for a keypress / 1 byte from stdin
+                    let _ = io::stdin().read(&mut [0u8]).unwrap();
+                    break;
+                } else {
+                    println!("Failed to verify share: try again");
+                    continue;
+                }
+            }
         }
 
-        for (i, share) in shares.iter().enumerate() {
-            debug!("share[{}]: {}", i, share.encode_hex::<String>());
-        }
+        print!("\x1B[2J\x1B[1;1H");
 
-        let shares: Vec<Share<{ KEY_LEN + 1 }>> = shares
-            .iter()
-            .map(|s| Share::try_from(&s[..]).unwrap())
-            .collect();
         let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
             Scalar,
             { KEY_LEN + 1 },
