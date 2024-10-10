@@ -1002,6 +1002,50 @@ mod tests {
     }
 
     #[test]
+    fn verify_zero_share() -> Result<()> {
+        let verifier: FeldmanVerifier<
+            Scalar,
+            ProjectivePoint,
+            { KEY_LEN + 1 },
+        > = serde_json::from_str(VERIFIER)
+            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+
+        let share: Share<{ KEY_LEN + 1 }> =
+            Share::try_from([0u8; KEY_LEN + 1].as_ref())
+                .context("Failed to create Share from static array.")?;
+
+        assert!(!verifier.verify(&share));
+
+        Ok(())
+    }
+
+    // TODO: I had expected that changing a single bit in a share would case
+    // the verifier to fail but that seems to be very wrong.
+    #[test]
+    fn verify_share_with_changed_byte() -> Result<()> {
+        let verifier: FeldmanVerifier<
+            Scalar,
+            ProjectivePoint,
+            { KEY_LEN + 1 },
+        > = serde_json::from_str(VERIFIER)
+            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+
+        let mut share = deserialize_share(SHARE_ARRAY[0])?;
+        println!("share: {}", share.0[0]);
+        share.0[1] = 0xff;
+        share.0[2] = 0xff;
+        share.0[3] = 0xff;
+        // If we don't change the next byte this test will start failing.
+        // I had (wrongly?) expected that the share would fail to verify w/
+        // a single changed byte
+        share.0[4] = 0xff;
+
+        assert!(!verifier.verify(&share));
+
+        Ok(())
+    }
+
+    #[test]
     fn recover_secret() -> Result<()> {
         let mut shares: Vec<Share<{ KEY_LEN + 1 }>> = Vec::new();
         for share in SHARE_ARRAY {
