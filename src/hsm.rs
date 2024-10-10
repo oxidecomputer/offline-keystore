@@ -24,7 +24,8 @@ use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
     wrap::{self, Message},
-    Capability, Client, Connector, Credentials, Domain, HttpConfig, UsbConfig,
+    AuditOption, Capability, Client, Connector, Credentials, Domain,
+    HttpConfig, UsbConfig,
 };
 use zeroize::Zeroizing;
 
@@ -697,6 +698,14 @@ pub fn reset(client: &Client) -> Result<()> {
         info!("reset aborted");
     }
     Ok(())
+}
+
+pub fn audit_lock(client: &Client) -> Result<()> {
+    if are_you_sure()? {
+        Ok(client.set_force_audit_option(AuditOption::Fix)?)
+    } else {
+        Err(anyhow::anyhow!("command aborted"))
+    }
 }
 
 // consts for our authentication credential
