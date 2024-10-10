@@ -9,7 +9,7 @@ use log::LevelFilter;
 use std::{path::PathBuf, str::FromStr};
 use yubihsm::{
     object::{Id, Type},
-    Client, Connector, Credentials, UsbConfig,
+    AuditOption, Client, Connector, Credentials, UsbConfig,
 };
 
 #[derive(Parser, Debug)]
@@ -29,8 +29,48 @@ struct Args {
     verbose: bool,
 }
 
+#[derive(Subcommand, Clone, Debug, PartialEq)]
+enum LogCommand {
+    /// dump log serialized to JSON
+    Json,
+
+    /// Set the index of the last entry consumed from the HSM audit log.
+    /// This causes entries with a lower index to be deleted.
+    SetIndex {
+        /// Last entry consumed.
+        index: u16,
+    },
+}
+
+#[derive(Subcommand, Clone, Debug, PartialEq)]
+enum AuditCommand {
+    /// Set the `force-audit` option to the disabled state.
+    Disable,
+
+    /// Set the `force-audit` option to the enabled state.
+    Enable,
+
+    /// Set the `force-audit` option to the locked state.
+    Lock,
+
+    /// Query the state of the `force-audit` option.
+    Query,
+
+    /// Manage the audit log.
+    Log {
+        #[command(subcommand)]
+        command: Option<LogCommand>,
+    },
+}
+
 #[derive(Subcommand, Debug, PartialEq)]
 enum Command {
+    /// Get / Set the state of the `force-audit` option.
+    Audit {
+        #[command(subcommand)]
+        command: AuditCommand,
+    },
+
     /// Export an object identified under wrap.
     Backup {
         /// Object ID: https://developers.yubico.com/YubiHSM2/Concepts/Object_ID.html
@@ -98,6 +138,34 @@ fn main() -> Result<()> {
     let client = Client::open(connector, credentials, true)?;
 
     match args.command {
+        Command::Audit { command } => match command {
+            AuditCommand::Disable => {
+                Ok(client.set_force_audit_option(AuditOption::Off)?)
+            }
+            AuditCommand::Enable => {
+                Ok(client.set_force_audit_option(AuditOption::On)?)
+            }
+            AuditCommand::Lock => Ok(oks::hsm::audit_lock(&client)?),
+            AuditCommand::Query => {
+                let state = client.get_force_audit_option()?;
+                println!("{:?}", state);
+                Ok(())
+            }
+            AuditCommand::Log { command } => match command {
+                None | Some(LogCommand::Json) => {
+                    let entries = client.get_log_entries()?;
+                    if entries.entries.last().is_some() {
+                        println!("{}", serde_json::to_string_pretty(&entries)?);
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!("audit log contains no entries"))
+                    }
+                }
+                Some(LogCommand::SetIndex { index }) => {
+                    Ok(client.set_log_index(index)?)
+                }
+            },
+        },
         Command::Backup { id, kind, file } => {
             // this is a bit weird but necessary because the Type type
             // returns () on error, not a type implementing std::Error
