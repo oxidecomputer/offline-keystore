@@ -41,6 +41,7 @@ const SEED_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const SHARE_LEN: usize = KEY_LEN + 1;
 const LABEL: &str = "backup";
+const VERIFIER_FILE: &str = "verifier.json";
 
 const SHARES: usize = 5;
 const THRESHOLD: usize = 3;
@@ -234,7 +235,7 @@ impl Hsm {
         >(*nzs.as_ref(), None, &mut rng)
         .map_err(|e| HsmError::SplitKeyFailed { e })?;
 
-        let verifier_path = self.out_dir.join("verifier.json");
+        let verifier_path = self.out_dir.join(VERIFIER_FILE);
         debug!(
             "Serializing verifier as json to: {}",
             verifier_path.display()
@@ -430,7 +431,7 @@ impl Hsm {
         // deserialize verifier:
         // verifier was serialized to output/verifier.json in the provisioning ceremony
         // it must be included in and deserialized from the ceremony inputs
-        let verifier = self.out_dir.join("verifier.json");
+        let verifier = self.out_dir.join(VERIFIER_FILE);
         let verifier = fs::read_to_string(verifier)?;
         let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
             serde_json::from_str(&verifier)?;
