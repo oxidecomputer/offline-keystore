@@ -39,6 +39,7 @@ const DOMAIN: Domain = Domain::all();
 const ID: Id = 0x1;
 const SEED_LEN: usize = 32;
 const KEY_LEN: usize = 32;
+const SHARE_LEN: usize = KEY_LEN + 1;
 const LABEL: &str = "backup";
 
 const SHARES: usize = 5;
@@ -229,7 +230,7 @@ impl Hsm {
             Scalar,
             ProjectivePoint,
             ChaCha20Rng,
-            { KEY_LEN + 1 },
+            SHARE_LEN,
         >(*nzs.as_ref(), None, &mut rng)
         .map_err(|e| HsmError::SplitKeyFailed { e })?;
 
@@ -424,18 +425,15 @@ impl Hsm {
         info!("Restoring HSM from backup");
         info!("Restoring backup / wrap key from shares");
         // vector used to collect shares
-        let mut shares: Vec<Share<{ KEY_LEN + 1 }>> = Vec::new();
+        let mut shares: Vec<Share<SHARE_LEN>> = Vec::new();
 
         // deserialize verifier:
         // verifier was serialized to output/verifier.json in the provisioning ceremony
         // it must be included in and deserialized from the ceremony inputs
         let verifier = self.out_dir.join("verifier.json");
         let verifier = fs::read_to_string(verifier)?;
-        let verifier: FeldmanVerifier<
-            Scalar,
-            ProjectivePoint,
-            { KEY_LEN + 1 },
-        > = serde_json::from_str(&verifier)?;
+        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
+            serde_json::from_str(&verifier)?;
 
         // get enough shares to recover backup key
         for _ in 1..=THRESHOLD {
@@ -499,7 +497,7 @@ impl Hsm {
                 };
 
                 // construct a Share from the decoded hex string
-                let share: Share<{ KEY_LEN + 1 }> =
+                let share: Share<SHARE_LEN> =
                     match Share::try_from(&share_vec[..]) {
                         Ok(share) => share,
                         Err(_) => {
@@ -536,7 +534,7 @@ impl Hsm {
 
         let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
             Scalar,
-            { KEY_LEN + 1 },
+            SHARE_LEN,
         >(&shares)
         .map_err(|e| HsmError::CombineKeyFailed { e })?;
 
@@ -936,7 +934,7 @@ mod tests {
         secret
     }
 
-    fn deserialize_share(share: &str) -> Result<Share<{ KEY_LEN + 1 }>> {
+    fn deserialize_share(share: &str) -> Result<Share<SHARE_LEN>> {
         // filter out whitespace to keep hex::decode happy
         let share: String =
             share.chars().filter(|c| !c.is_whitespace()).collect();
@@ -960,7 +958,7 @@ mod tests {
             Scalar,
             ProjectivePoint,
             ThreadRng,
-            { KEY_LEN + 1 },
+            SHARE_LEN,
         >(*nzs.as_ref(), None, &mut rng)
         .map_err(|e| anyhow::anyhow!("failed to split secret: {}", e))?;
 
@@ -970,7 +968,7 @@ mod tests {
 
         let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
             Scalar,
-            { KEY_LEN + 1 },
+            SHARE_LEN,
         >(&shares)
         .map_err(|e| anyhow::anyhow!("failed to combine secret: {}", e))?;
 
@@ -986,12 +984,9 @@ mod tests {
     // deserialize a verifier & use it to verify the shares in SHARE_ARRAY
     #[test]
     fn verify_shares() -> Result<()> {
-        let verifier: FeldmanVerifier<
-            Scalar,
-            ProjectivePoint,
-            { KEY_LEN + 1 },
-        > = serde_json::from_str(VERIFIER)
-            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
+            serde_json::from_str(VERIFIER)
+                .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
         for share in SHARE_ARRAY {
             let share = deserialize_share(share)?;
@@ -1003,15 +998,12 @@ mod tests {
 
     #[test]
     fn verify_zero_share() -> Result<()> {
-        let verifier: FeldmanVerifier<
-            Scalar,
-            ProjectivePoint,
-            { KEY_LEN + 1 },
-        > = serde_json::from_str(VERIFIER)
-            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
+            serde_json::from_str(VERIFIER)
+                .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
-        let share: Share<{ KEY_LEN + 1 }> =
-            Share::try_from([0u8; KEY_LEN + 1].as_ref())
+        let share: Share<SHARE_LEN> =
+            Share::try_from([0u8; SHARE_LEN].as_ref())
                 .context("Failed to create Share from static array.")?;
 
         assert!(!verifier.verify(&share));
@@ -1023,12 +1015,9 @@ mod tests {
     // the verifier to fail but that seems to be very wrong.
     #[test]
     fn verify_share_with_changed_byte() -> Result<()> {
-        let verifier: FeldmanVerifier<
-            Scalar,
-            ProjectivePoint,
-            { KEY_LEN + 1 },
-        > = serde_json::from_str(VERIFIER)
-            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
+            serde_json::from_str(VERIFIER)
+                .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
         let mut share = deserialize_share(SHARE_ARRAY[0])?;
         println!("share: {}", share.0[0]);
@@ -1047,14 +1036,14 @@ mod tests {
 
     #[test]
     fn recover_secret() -> Result<()> {
-        let mut shares: Vec<Share<{ KEY_LEN + 1 }>> = Vec::new();
+        let mut shares: Vec<Share<SHARE_LEN>> = Vec::new();
         for share in SHARE_ARRAY {
             shares.push(deserialize_share(share)?);
         }
 
         let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
             Scalar,
-            { KEY_LEN + 1 },
+            SHARE_LEN,
         >(&shares)
         .map_err(|e| anyhow::anyhow!("failed to combine secret: {}", e))?;
 
