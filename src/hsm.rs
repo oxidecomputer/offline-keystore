@@ -19,7 +19,7 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
-use vsss_rs::{Feldman, FeldmanVerifier, Share};
+use vsss_rs::{Feldman, FeldmanVerifier};
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
@@ -50,6 +50,8 @@ sa::const_assert!(THRESHOLD <= SHARES);
 
 const BACKUP_EXT: &str = ".backup.json";
 const ATTEST_FILE_NAME: &str = "hsm.attest.cert.pem";
+
+pub type Share = vsss_rs::Share<SHARE_LEN>;
 
 #[derive(Error, Debug)]
 pub enum HsmError {
@@ -427,7 +429,7 @@ impl Hsm {
         info!("Restoring HSM from backup");
         info!("Restoring backup / wrap key from shares");
         // vector used to collect shares
-        let mut shares: Vec<Share<SHARE_LEN>> = Vec::new();
+        let mut shares: Vec<Share> = Vec::new();
 
         // deserialize verifier:
         // verifier was serialized to output/verifier.json in the provisioning ceremony
@@ -491,26 +493,25 @@ impl Hsm {
                     Ok(share) => share,
                     Err(_) => {
                         println!(
-                            "Failed to decode Share. The value entered \
-                                 isn't a valid hex string: try again."
+                            "Failed to decode Share. The value entered isn't \
+                            a valid hex string: try again."
                         );
                         continue;
                     }
                 };
 
                 // construct a Share from the decoded hex string
-                let share: Share<SHARE_LEN> =
-                    match Share::try_from(&share_vec[..]) {
-                        Ok(share) => share,
-                        Err(_) => {
-                            println!(
-                                "Failed to convert share entered to Share \
-                                type. The value entered is the wrong length \
-                                ... try again."
-                            );
-                            continue;
-                        }
-                    };
+                let share = match Share::try_from(&share_vec[..]) {
+                    Ok(share) => share,
+                    Err(_) => {
+                        println!(
+                            "Failed to convert share entered to Share type. \
+                            The value entered is the wrong length ... try \
+                            again."
+                        );
+                        continue;
+                    }
+                };
 
                 if verifier.verify(&share) {
                     // if we're going to switch from paper to CDs for key
@@ -944,7 +945,7 @@ mod tests {
         secret
     }
 
-    fn deserialize_share(share: &str) -> Result<Share<SHARE_LEN>> {
+    fn deserialize_share(share: &str) -> Result<Share> {
         // filter out whitespace to keep hex::decode happy
         let share: String =
             share.chars().filter(|c| !c.is_whitespace()).collect();
@@ -1012,9 +1013,8 @@ mod tests {
             serde_json::from_str(VERIFIER)
                 .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
-        let share: Share<SHARE_LEN> =
-            Share::try_from([0u8; SHARE_LEN].as_ref())
-                .context("Failed to create Share from static array.")?;
+        let share = Share::try_from([0u8; SHARE_LEN].as_ref())
+            .context("Failed to create Share from static array.")?;
 
         assert!(!verifier.verify(&share));
 
@@ -1046,7 +1046,7 @@ mod tests {
 
     #[test]
     fn recover_secret() -> Result<()> {
-        let mut shares: Vec<Share<SHARE_LEN>> = Vec::new();
+        let mut shares: Vec<Share> = Vec::new();
         for share in SHARE_ARRAY {
             shares.push(deserialize_share(share)?);
         }
