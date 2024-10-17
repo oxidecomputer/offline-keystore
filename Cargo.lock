@@ -2142,7 +2142,7 @@ dependencies = [
 [[package]]
 name = "yubihsm"
 version = "0.42.1"
-source = "git+https://github.com/oxidecomputer/yubihsm.rs?branch=session-close#b61a72247b359f9a19ab70095a76cad14d54714e"
+source = "git+https://github.com/oxidecomputer/yubihsm.rs?branch=session-close#de7dc53bc0fcffda1854012b254b3f5cfc0b0bae"
 dependencies = [
  "aes",
  "bitflags",
