@@ -28,6 +28,8 @@ pub const ENV_PASSWORD: &str = "OKS_PASSWORD";
 pub const ENV_NEW_PASSWORD: &str = "OKS_NEW_PASSWORD";
 
 pub const KEYSPEC_EXT: &str = ".keyspec.json";
+pub const CSRSPEC_EXT: &str = ".csrspec.json";
+pub const DCSRSPEC_EXT: &str = ".dcsrspec.json";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -42,6 +44,12 @@ pub enum ConfigError {
 
     #[error("failed to parse csr spec from JSON")]
     BadCsrSpec { e: serde_json::Error },
+
+    #[error("Unsupported Algorithm")]
+    UnsupportedAlgorithm,
+
+    #[error("Unsupported Domain")]
+    UnsupportedDomain,
 }
 
 // These structs duplicate data from the yubihsm crate
@@ -61,6 +69,18 @@ impl From<OksAlgorithm> for asymmetric::Algorithm {
     }
 }
 
+impl TryFrom<asymmetric::Algorithm> for OksAlgorithm {
+    type Error = ConfigError;
+
+    fn try_from(val: asymmetric::Algorithm) -> Result<Self, Self::Error> {
+        match val {
+            asymmetric::Algorithm::Rsa4096 => Ok(OksAlgorithm::Rsa4096),
+            asymmetric::Algorithm::EcP384 => Ok(OksAlgorithm::Ecp384),
+            _ => Err(ConfigError::UnsupportedAlgorithm),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 enum OksDomain {
     DOM1,
@@ -70,6 +90,17 @@ impl From<OksDomain> for Domain {
     fn from(val: OksDomain) -> Self {
         match val {
             OksDomain::DOM1 => Domain::DOM1,
+        }
+    }
+}
+
+impl TryFrom<Domain> for OksDomain {
+    type Error = ConfigError;
+
+    fn try_from(val: Domain) -> Result<Self, Self::Error> {
+        match val {
+            Domain::DOM1 => Ok(OksDomain::DOM1),
+            _ => Err(ConfigError::UnsupportedDomain),
         }
     }
 }
@@ -88,6 +119,14 @@ impl TryInto<Label> for OksLabel {
     }
 }
 
+impl TryFrom<Label> for OksLabel {
+    type Error = anyhow::Error;
+
+    fn try_from(val: Label) -> Result<Self, Self::Error> {
+        Ok(Self(String::from(val.try_as_str()?)))
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 enum OksCapability {
     All,
@@ -101,7 +140,19 @@ impl From<OksCapability> for Capability {
     }
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+impl TryFrom<Capability> for OksCapability {
+    type Error = ConfigError;
+
+    fn try_from(val: Capability) -> Result<Self, Self::Error> {
+        if val == Capability::all() {
+            Ok(OksCapability::All)
+        } else {
+            Err(ConfigError::BadCapability)
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Hash {
     Sha256,
     Sha384,
@@ -109,7 +160,7 @@ pub enum Hash {
 
 /// Values in this enum are mapped to OpenSSL config sections for v3 extensions.
 /// All certs issued by the OKS are assumed to be intermediate CAs.
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Purpose {
     RoTDevelopmentRoot,
     RoTReleaseRoot,
@@ -148,6 +199,37 @@ struct OksKeySpec {
     pub self_signed: bool,
 }
 
+impl TryFrom<&KeySpec> for OksKeySpec {
+    type Error = anyhow::Error;
+
+    fn try_from(spec: &KeySpec) -> Result<Self, Self::Error> {
+        Ok(OksKeySpec {
+            common_name: spec.common_name.clone(),
+            id: spec.id,
+            algorithm: spec.algorithm.try_into()?,
+            capabilities: spec.capabilities.try_into()?,
+            domain: spec.domain.try_into()?,
+            hash: spec.hash,
+            label: spec.label.clone().try_into()?,
+            purpose: spec.purpose,
+            initial_serial_number: match spec
+                .initial_serial_number
+                .to_bytes_be()
+                .try_into()
+            {
+                Ok(sn) => sn,
+                Err(v) => {
+                    return Err(anyhow::anyhow!(
+                        "Expected array of 20 bytes, got {}",
+                        v.len()
+                    ));
+                }
+            },
+            self_signed: spec.self_signed,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct KeySpec {
     pub common_name: String,
@@ -160,6 +242,13 @@ pub struct KeySpec {
     pub purpose: Purpose,
     pub initial_serial_number: BigUint,
     pub self_signed: bool,
+}
+
+impl KeySpec {
+    pub fn to_json(&self) -> Result<String> {
+        let spec: OksKeySpec = self.try_into()?;
+        Ok(serde_json::to_string(&spec)?)
+    }
 }
 
 impl FromStr for KeySpec {

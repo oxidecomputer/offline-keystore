@@ -33,5 +33,6 @@ thiserror = "1.0.64"
 # vsss-rs v3 has a dependency that requires rustc 1.65 but we're pinned
 # to 1.64 till offline-keystore-os supports it
 vsss-rs = "2.7.1"
+x509-cert = "0.2.5"
 yubihsm = { git = "https://github.com/oxidecomputer/yubihsm.rs", branch = "session-close", features = ["usb", "untested"] }
 zeroize = "1.8.1"
