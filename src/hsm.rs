@@ -3,7 +3,6 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::{Context, Result};
-use hex::ToHex;
 use log::{debug, error, info};
 use p256::elliptic_curve::PrimeField;
 use p256::{NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
@@ -11,9 +10,8 @@ use pem_rfc7468::LineEnding;
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 use static_assertions as sa;
 use std::collections::HashSet;
-use std::fs::File;
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
     str::FromStr,
@@ -42,16 +40,18 @@ const SEED_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const SHARE_LEN: usize = KEY_LEN + 1;
 const LABEL: &str = "backup";
-const VERIFIER_FILE: &str = "verifier.json";
+pub const VERIFIER_FILE: &str = "verifier.json";
 
-const SHARES: usize = 5;
-const THRESHOLD: usize = 3;
-sa::const_assert!(THRESHOLD <= SHARES);
+pub const LIMIT: usize = 5;
+pub const THRESHOLD: usize = 3;
+sa::const_assert!(THRESHOLD <= LIMIT);
 
 const BACKUP_EXT: &str = ".backup.json";
 const ATTEST_FILE_NAME: &str = "hsm.attest.cert.pem";
 
 pub type Share = vsss_rs::Share<SHARE_LEN>;
+pub type SharesMax = [Share; LIMIT];
+pub type Verifier = FeldmanVerifier<Scalar, ProjectivePoint, THRESHOLD>;
 
 #[derive(Error, Debug)]
 pub enum HsmError {
@@ -202,9 +202,11 @@ impl Hsm {
         )
     }
 
-    /// create a new wrap key, cut it up into shares, print those shares to
-    /// `print_dev` & put the wrap key in the HSM
-    pub fn new_split_wrap(&self, print_dev: &Path) -> Result<()> {
+    /// Create a new wrap key, cut it up into shares, & a Feldman verifier,
+    /// then put the key into the YubiHSM. The shares and the verifier are then
+    /// returned to the caller. Generally they will then be distributed
+    /// 'off-platform' somehow.
+    pub fn new_split_wrap(&self) -> Result<(Zeroizing<SharesMax>, Verifier)> {
         info!(
             "Generating wrap / backup key from HSM PRNG with label: \"{}\"",
             LABEL.to_string()
@@ -223,66 +225,20 @@ impl Hsm {
             })?;
         let mut rng = ChaCha20Rng::from_seed(rng_seed);
 
-        info!("Splitting wrap key into {} shares.", SHARES);
+        info!("Splitting wrap key into {} shares.", LIMIT);
         let wrap_key = SecretKey::from_be_bytes(&wrap_key)?;
         debug!("wrap key: {:?}", wrap_key.to_be_bytes());
 
         let nzs = wrap_key.to_nonzero_scalar();
         // we add a byte to the key length per instructions from the library:
         // https://docs.rs/vsss-rs/2.7.1/src/vsss_rs/lib.rs.html#34
-        let (shares, verifier) = Feldman::<THRESHOLD, SHARES>::split_secret::<
+        let (shares, verifier) = Feldman::<THRESHOLD, LIMIT>::split_secret::<
             Scalar,
             ProjectivePoint,
             ChaCha20Rng,
             SHARE_LEN,
         >(*nzs.as_ref(), None, &mut rng)
         .map_err(|e| HsmError::SplitKeyFailed { e })?;
-
-        let verifier_path = self.out_dir.join(VERIFIER_FILE);
-        debug!(
-            "Serializing verifier as json to: {}",
-            verifier_path.display()
-        );
-
-        let verifier = serde_json::to_string(&verifier)?;
-        debug!("JSON: {}", verifier);
-
-        fs::write(verifier_path, verifier)?;
-
-        println!(
-            "\nWARNING: The wrap / backup key has been created and stored in the\n\
-            YubiHSM. It will now be split into {} key shares and each share\n\
-            will be individually written to {}. Before each keyshare is\n\
-            printed, the operator will be prompted to ensure the appropriate key\n\
-            custodian is present in front of the printer.\n\n\
-            Press enter to begin the key share recording process ...",
-            SHARES,
-            print_dev.display(),
-        );
-
-        wait_for_line()?;
-
-        let mut print_file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(print_dev)?;
-
-        for (i, share) in shares.iter().enumerate() {
-            let share_num = i + 1;
-            println!(
-                "When key custodian {num} is ready, press enter to print share \
-                {num}",
-                num = share_num,
-            );
-            wait_for_line()?;
-
-            print_share(&mut print_file, i, SHARES, share.as_ref())?;
-            println!(
-                "When key custodian {} has collected their key share, press enter",
-                share_num,
-            );
-            wait_for_line()?;
-        }
 
         // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
         info!("Storing wrap key in YubiHSM.");
@@ -307,7 +263,7 @@ impl Hsm {
         // key with any other id the HSM isn't in the state we think it is.
         assert_eq!(id, WRAP_ID);
 
-        Ok(())
+        Ok((Zeroizing::new(shares), verifier))
     }
 
     // create a new auth key, remove the default auth key, then export the new
@@ -436,8 +392,7 @@ impl Hsm {
         // it must be included in and deserialized from the ceremony inputs
         let verifier = self.out_dir.join(VERIFIER_FILE);
         let verifier = fs::read_to_string(verifier)?;
-        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
-            serde_json::from_str(&verifier)?;
+        let verifier: Verifier = serde_json::from_str(&verifier)?;
 
         // get enough shares to recover backup key
         for _ in 1..=THRESHOLD {
@@ -535,7 +490,7 @@ impl Hsm {
 
         print!("\x1B[2J\x1B[1;1H");
 
-        let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
+        let scalar = Feldman::<THRESHOLD, LIMIT>::combine_shares::<
             Scalar,
             SHARE_LEN,
         >(&shares)
@@ -716,13 +671,6 @@ const AUTH_DELEGATED: Capability = Capability::all();
 const AUTH_ID: Id = 2;
 const AUTH_LABEL: &str = "admin";
 
-/// This function is used when displaying key shares as a way for the user to
-/// control progression through the key shares displayed in the terminal.
-fn wait_for_line() -> Result<()> {
-    let _ = io::stdin().lines().next().unwrap()?;
-    Ok(())
-}
-
 fn are_you_sure() -> Result<bool> {
     print!("Are you sure? (y/n):");
     io::stdout().flush()?;
@@ -734,180 +682,6 @@ fn are_you_sure() -> Result<bool> {
     debug!("got: \"{}\"", buffer);
 
     Ok(buffer == "y")
-}
-
-// Character pitch is assumed to be 10 CPI
-const CHARACTERS_PER_INCH: usize = 10;
-
-// Horizontal position location is measured in 1/60th of an inch
-const UNITS_PER_INCH: usize = 60;
-
-const UNITS_PER_CHARACTER: usize = UNITS_PER_INCH / CHARACTERS_PER_INCH;
-
-// Page is 8.5" wide.  Using 17/2 to stay in integers.
-const UNITS_PER_LINE: usize = 17 * UNITS_PER_INCH / 2;
-
-const ESC: u8 = 0x1b;
-const LF: u8 = 0x0a;
-const FF: u8 = 0x0c;
-const CR: u8 = 0x0d;
-
-fn print_centered_line(print_file: &mut File, text: &[u8]) -> Result<()> {
-    let text_width_units = text.len() * UNITS_PER_CHARACTER;
-
-    let remaining_space = UNITS_PER_LINE - text_width_units;
-    let half_remaining = remaining_space / 2;
-
-    let n_h = (half_remaining / 256) as u8;
-    let n_l = (half_remaining % 256) as u8;
-
-    print_file.write_all(&[ESC, b'$', n_l, n_h])?;
-
-    print_file.write_all(text)?;
-
-    Ok(())
-}
-
-fn print_whitespace_notice(
-    print_file: &mut File,
-    data_type: &str,
-) -> Result<()> {
-    print_file.write_all(&[
-        ESC, b'$', 0, 0, // Move to left edge
-    ])?;
-
-    let options = textwrap::Options::new(70)
-        .initial_indent("     NOTE: ")
-        .subsequent_indent("           ");
-    let text = format!("Whitespace is a visual aid only and must be omitted when entering the {data_type}");
-
-    for line in textwrap::wrap(&text, options) {
-        print_file.write_all(&[CR, LF])?;
-        print_file.write_all(line.as_bytes())?;
-    }
-
-    Ok(())
-}
-
-// Format a key share for printing with Epson ESC/P
-#[rustfmt::skip]
-pub fn print_share(
-    print_file: &mut File,
-    share_idx: usize,
-    share_count: usize,
-    share_data: &[u8],
-) -> Result<()> {
-    // ESC/P specification recommends sending CR before LF and FF.  The latter commands
-    // print the contents of the data buffer before their movement.  This can cause
-    // double printing (bolding) in certain situations.  Sending CR clears the data buffer
-    // without printing so sending it first avoids any double printing.
-
-    print_file.write_all(&[
-        ESC, b'@', // Initialize Printer
-        ESC, b'x', 1, // Select NLQ mode
-        ESC, b'k', 1, // Select San Serif font
-        ESC, b'E', // Select Bold
-    ])?;
-    print_centered_line(print_file, b"Oxide Offline Keystore")?;
-    print_file.write_all(&[
-        CR, LF,
-        ESC, b'F', // Deselect Bold
-    ])?;
-
-    print_centered_line(print_file, format!("Recovery Key Share {} of {}",
-            share_idx + 1, share_count).as_bytes())?;
-    print_file.write_all(&[
-        CR, LF,
-        CR, LF,
-        ESC, b'D', 8, 20, 32, 44, 0, // Set horizontal tab stops
-    ])?;
-
-    for (i, chunk) in share_data
-        .encode_hex::<String>()
-        .as_bytes()
-        .chunks(8)
-        .enumerate()
-    {
-        if i % 4 == 0 {
-            print_file.write_all(&[CR, LF])?;
-        }
-        print_file.write_all(&[b'\t'])?;
-        print_file.write_all(chunk)?;
-    }
-
-    print_file.write_all(&[CR, LF])?;
-
-    print_whitespace_notice(print_file, "recovery key share")?;
-
-    print_file.write_all(&[CR, FF])?;
-    Ok(())
-}
-
-// Format a key share for printing with Epson ESC/P
-#[rustfmt::skip]
-pub fn print_password(
-    print_dev: &Path,
-    password: &Zeroizing<String>,
-) -> Result<()> {
-    println!(
-        "\nWARNING: The HSM authentication password has been created and stored in\n\
-        the YubiHSM. It will now be printed to {}.\n\
-        Before this password is printed, the operator will be prompted to ensure\n\
-        that the appropriate participant is in front of the printer to recieve\n\
-        the printout.\n\n\
-        Press enter to print the HSM password ...",
-        print_dev.display(),
-    );
-
-    wait_for_line()?;
-
-    let mut print_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(print_dev)?;
-
-    // ESC/P specification recommends sending CR before LF and FF.  The latter commands
-    // print the contents of the data buffer before their movement.  This can cause
-    // double printing (bolding) in certain situations.  Sending CR clears the data buffer
-    // without printing so sending it first avoids any double printing.
-
-    print_file.write_all(&[
-        ESC, b'@', // Initialize Printer
-        ESC, b'x', 1, // Select NLQ mode
-        ESC, b'k', 1, // Select San Serif font
-        ESC, b'E', // Select Bold
-    ])?;
-    print_centered_line(&mut print_file, b"Oxide Offline Keystore")?;
-    print_file.write_all(&[
-        CR, LF,
-        ESC, b'F', // Deselect Bold
-    ])?;
-    print_centered_line(&mut print_file, b"HSM Password")?;
-    print_file.write_all(&[
-        CR, LF,
-        CR, LF,
-        ESC, b'D', 8, 20, 32, 44, 0, // Set horizontal tab stops
-        CR, LF,
-    ])?;
-
-    for (i, chunk) in password
-        .as_bytes()
-        .chunks(8)
-        .enumerate()
-    {
-        if i % 4 == 0 {
-            print_file.write_all(&[CR, LF])?;
-        }
-        print_file.write_all(&[b'\t'])?;
-        print_file.write_all(chunk)?;
-    }
-
-    print_file.write_all(&[CR, LF])?;
-
-    print_whitespace_notice(&mut print_file, "HSM password")?;
-
-    print_file.write_all(&[CR, FF])?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -923,19 +697,19 @@ mod tests {
     {
         "generator": "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
         "commitments": [
-            "02315e9e3cd76d0917ecd60378b75259bbdf2e35a31f46c05a497409d5d89c69dc",
-            "0250e4e04d42e92bc15eecbe0789f5ac4831abe962df6b1eaed897e4634df702e3",
-            "02dfc3c60074cb4896163e7e188f8ec93d3bd1e2fd2ed68854c9324e4a56e94cc7"
+            "022f65c477affe7de97a51b8e562e763030218a8f0a8ecd7c349a50df7ded44985",
+            "03365076080ebeeab74e2421fa0f4e4c5796ad3cbd157cc0405b100a45ae89f22f",
+            "02bbd29359d702ff89ab2cbdb9e6ae102dfb1c4108aeab0701a469f28f0ad1e813"
         ]
     }"#;
 
     // shares dumped to the printer by `new_split_wrap`
-    const SHARE_ARRAY: [&str; SHARES] = [
-        "01 b5b7dd6a 8ef8762f 0f266784 be191202 7b8a4b21 72fcb410 f28b2e1a e3669f9c",
-        "02 042cfd2b 1ede9e78 d7827065 2d8c20ef 1cb43bf1 c722f2e3 a08ac387 b57b18f8",
-        "03 ddb9039b c714c472 70ecfd33 53657366 51230043 6f56c6a8 cf074e89 ac1fc4d0",
-        "04 425bf0bf 879ae818 db660def 2fa509f8 e221a80d 765153d1 a2d34dd7 d22d3321",
-        "05 3215c494 6071096e 16eda298 c24ae4a6 497e28ab 2a41d768 036261f8 2063ae8d",
+    const SHARE_ARRAY: [&str; LIMIT] = [
+        "01a69b62eb1a7c9deb5435ca73bf6f5e280279ba9cbdcd873d4decb665fb8aaf34",
+        "020495513aa59e274196125218ff57b2f01f6bf97d817d24a1a00c5fbf29af08a8",
+        "030c476f49b8c6e796dd6e7981c4c544f90794efc716db43d8c7adbf8bc3ec3fc7",
+        "04bdb1bd1853f6deeb2a4a40ae0fb81442baf49d797de7e4e2c4d0d5cbca425491",
+        "0518d43aa8772e0d3c7ca5a79de03020cdbfbd0d396873cab5b0020cf943eafc64",
     ];
 
     fn secret_bytes() -> [u8; KEY_LEN] {
@@ -965,7 +739,7 @@ mod tests {
         let nzs = secret_key.to_nonzero_scalar();
 
         let mut rng = ThreadRng::default();
-        let (shares, verifier) = Feldman::<THRESHOLD, SHARES>::split_secret::<
+        let (shares, verifier) = Feldman::<THRESHOLD, LIMIT>::split_secret::<
             Scalar,
             ProjectivePoint,
             ThreadRng,
@@ -977,7 +751,7 @@ mod tests {
             assert!(verifier.verify(s));
         }
 
-        let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
+        let scalar = Feldman::<THRESHOLD, LIMIT>::combine_shares::<
             Scalar,
             SHARE_LEN,
         >(&shares)
@@ -995,9 +769,8 @@ mod tests {
     // deserialize a verifier & use it to verify the shares in SHARE_ARRAY
     #[test]
     fn verify_shares() -> Result<()> {
-        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
-            serde_json::from_str(VERIFIER)
-                .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+        let verifier: Verifier = serde_json::from_str(VERIFIER)
+            .context("Failed to deserialize Verifier from JSON.")?;
 
         for share in SHARE_ARRAY {
             let share = deserialize_share(share)?;
@@ -1009,9 +782,8 @@ mod tests {
 
     #[test]
     fn verify_zero_share() -> Result<()> {
-        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
-            serde_json::from_str(VERIFIER)
-                .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+        let verifier: Verifier = serde_json::from_str(VERIFIER)
+            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
         let share = Share::try_from([0u8; SHARE_LEN].as_ref())
             .context("Failed to create Share from static array.")?;
@@ -1025,9 +797,8 @@ mod tests {
     // the verifier to fail but that seems to be very wrong.
     #[test]
     fn verify_share_with_changed_byte() -> Result<()> {
-        let verifier: FeldmanVerifier<Scalar, ProjectivePoint, SHARE_LEN> =
-            serde_json::from_str(VERIFIER)
-                .context("Failed to deserialize FeldmanVerifier from JSON.")?;
+        let verifier: Verifier = serde_json::from_str(VERIFIER)
+            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
 
         let mut share = deserialize_share(SHARE_ARRAY[0])?;
         println!("share: {}", share.0[0]);
@@ -1051,7 +822,7 @@ mod tests {
             shares.push(deserialize_share(share)?);
         }
 
-        let scalar = Feldman::<THRESHOLD, SHARES>::combine_shares::<
+        let scalar = Feldman::<THRESHOLD, LIMIT>::combine_shares::<
             Scalar,
             SHARE_LEN,
         >(&shares)

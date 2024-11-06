@@ -2,12 +2,15 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::{fs::OpenOptions, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use hex::ToHex;
-use oks::hsm::Alphabet;
+use oks::{
+    hsm::{Alphabet, Share},
+    secret_writer::PrinterSecretWriter,
+};
 use rand::{thread_rng, Rng};
 use zeroize::Zeroizing;
 
@@ -38,6 +41,7 @@ enum Command {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let secret_writer = PrinterSecretWriter::new(Some(args.print_dev));
 
     match args.command {
         Command::RecoveryKeyShare {
@@ -45,29 +49,20 @@ fn main() -> Result<()> {
             share_count,
             data_len,
         } => {
-            let mut print_file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(args.print_dev)?;
-
             let share_data: Vec<u8> =
                 (0..data_len).map(|x| (x % 256) as u8).collect();
+            let share = Share::try_from(&share_data[..])?;
+            let share = Zeroizing::new(share);
 
             println!("Data: {}", share_data.encode_hex::<String>());
 
-            oks::hsm::print_share(
-                &mut print_file,
-                share_idx,
-                share_count,
-                &share_data,
-            )
+            secret_writer.share(share_idx, share_count, &share)
         }
         Command::HsmPassword { length } => {
             let password = Alphabet::new()
                 .get_random_string(|| Ok(thread_rng().gen::<u8>()), length)?;
             let password = Zeroizing::new(password);
-            oks::hsm::print_password(&args.print_dev, &password)
+            secret_writer.password(&password)
         }
     }
 }
