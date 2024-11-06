@@ -21,7 +21,9 @@ use oks::{
         self, CsrSpec, DcsrSpec, KeySpec, Transport, CSRSPEC_EXT, DCSRSPEC_EXT,
         ENV_NEW_PASSWORD, ENV_PASSWORD, KEYSPEC_EXT,
     },
-    hsm::{self, Hsm},
+    hsm::{Hsm, LIMIT, VERIFIER_FILE},
+    secret_writer::{PrinterSecretWriter, DEFAULT_PRINT_DEV},
+    util,
 };
 
 const PASSWD_PROMPT: &str = "Enter new password: ";
@@ -97,7 +99,7 @@ enum Command {
         )]
         pkcs11_path: PathBuf,
 
-        #[clap(long, env, default_value = "/dev/usb/lp0")]
+        #[clap(long, env, default_value = DEFAULT_PRINT_DEV)]
         print_dev: PathBuf,
 
         #[clap(long, env)]
@@ -272,15 +274,14 @@ fn get_new_passwd(hsm: Option<&Hsm>) -> Result<Zeroizing<String>> {
 
 /// Perform all operations that make up the ceremony for provisioning an
 /// offline keystore.
-fn do_ceremony(
-    csr_spec: &Path,
-    key_spec: &Path,
-    pkcs11_path: &Path,
-    print_dev: &Path,
+fn do_ceremony<P: AsRef<Path>>(
+    csr_spec: P,
+    key_spec: P,
+    pkcs11_path: P,
+    print_dev: P,
     challenge: bool,
     args: &Args,
 ) -> Result<()> {
-    // this is mut so we can zeroize when we're done
     let passwd_new = {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
@@ -293,17 +294,57 @@ fn do_ceremony(
             args.transport,
         )?;
 
-        hsm.new_split_wrap(print_dev)?;
+        let (shares, verifier) = hsm.new_split_wrap()?;
+        let verifier = serde_json::to_string(&verifier)?;
+        debug!("JSON: {}", verifier);
+        let verifier_path = args.output.join(VERIFIER_FILE);
+        debug!(
+            "Serializing verifier as json to: {}",
+            verifier_path.display()
+        );
+
+        fs::write(verifier_path, verifier)?;
+
+        println!(
+            "\nWARNING: The wrap / backup key has been created and stored in the\n\
+            YubiHSM. It will now be split into {} key shares and each share\n\
+            will be individually written to {}. Before each keyshare is\n\
+            printed, the operator will be prompted to ensure the appropriate key\n\
+            custodian is present in front of the printer.\n\n\
+            Press enter to begin the key share recording process ...",
+            LIMIT,
+            print_dev.as_ref().display(),
+        );
+
+        let secret_writer = PrinterSecretWriter::new(Some(print_dev));
+        for (i, share) in shares.as_ref().iter().enumerate() {
+            let share_num = i + 1;
+            println!(
+                "When key custodian {num} is ready, press enter to print share \
+                {num}",
+                num = share_num,
+            );
+            util::wait_for_line()?;
+
+            // we're iterating over &Share so we've gotta clone it to wrap it
+            // in a `Zeroize` like `share` expects
+            secret_writer.share(i, LIMIT, &Zeroizing::new(*share))?;
+            println!(
+                "When key custodian {} has collected their key share, press enter",
+                share_num,
+            );
+            util::wait_for_line()?;
+        }
         info!("Collecting YubiHSM attestation cert.");
         hsm.dump_attest_cert::<String>(None)?;
 
         let passwd = if challenge {
             get_new_passwd(None)?
         } else {
-            let passwd = get_new_passwd(Some(&hsm))?;
-            hsm::print_password(print_dev, &passwd)?;
-            passwd
+            get_new_passwd(Some(&hsm))?
         };
+
+        secret_writer.password(&passwd)?;
         hsm.replace_default_auth(&passwd)?;
         passwd
     };
@@ -317,15 +358,25 @@ fn do_ceremony(
             true,
             args.transport,
         )?;
-        hsm.generate(key_spec)?;
+        hsm.generate(key_spec.as_ref())?;
     }
 
     // set env var for oks::ca module to pickup for PKCS11 auth
     env::set_var(ENV_PASSWORD, &passwd_new);
     // for each key_spec in `key_spec` initialize Ca
-    let cas =
-        initialize_all_ca(key_spec, pkcs11_path, &args.state, &args.output)?;
-    sign_all(&cas, csr_spec, &args.state, &args.output, args.transport)
+    let cas = initialize_all_ca(
+        key_spec.as_ref(),
+        pkcs11_path.as_ref(),
+        &args.state,
+        &args.output,
+    )?;
+    sign_all(
+        &cas,
+        csr_spec.as_ref(),
+        &args.state,
+        &args.output,
+        args.transport,
+    )
 }
 
 pub fn initialize_all_ca<P: AsRef<Path>>(
@@ -634,16 +685,63 @@ fn main() -> Result<()> {
                     passwd_challenge,
                 } => {
                     debug!("Initialize");
-                    if hsm.backup {
-                        hsm.new_split_wrap(&print_dev)?;
+                    let (shares, verifier) = hsm.new_split_wrap()?;
+                    let verifier = serde_json::to_string(&verifier)?;
+                    debug!("JSON: {}", verifier);
+                    let verifier_path = args.output.join(VERIFIER_FILE);
+                    debug!(
+                        "Serializing verifier as json to: {}",
+                        verifier_path.display()
+                    );
+
+                    fs::write(verifier_path, verifier)?;
+
+                    println!(
+                        "\nWARNING: The wrap / backup key has been created and stored in the\n\
+                        YubiHSM. It will now be split into {} key shares and each share\n\
+                        will be individually written to {}. Before each keyshare is\n\
+                        printed, the operator will be prompted to ensure the appropriate key\n\
+                        custodian is present in front of the printer.\n\n\
+                        Press enter to begin the key share recording process ...",
+                        LIMIT,
+                        print_dev.display(),
+                    );
+
+                    let secret_writer =
+                        PrinterSecretWriter::new(Some(&print_dev));
+                    for (i, share) in shares.as_ref().iter().enumerate() {
+                        let share_num = i + 1;
+                        println!(
+                            "When key custodian {num} is ready, press enter to print share \
+                            {num}",
+                            num = share_num,
+                        );
+                        util::wait_for_line()?;
+
+                        // TODO: ergonomics?
+                        // we're iterating over &Share so we've gotta clone it to wrap it
+                        // in a `Zeroize` like `share` expects
+                        secret_writer.share(
+                            i,
+                            LIMIT,
+                            &Zeroizing::new(*share),
+                        )?;
+                        println!(
+                            "When key custodian {} has collected their key share, press enter",
+                            share_num,
+                        );
+                        util::wait_for_line()?;
                     }
                     let passwd_new = if passwd_challenge {
                         get_new_passwd(None)?
                     } else {
-                        let passwd = get_new_passwd(Some(&hsm))?;
-                        hsm::print_password(&print_dev, &passwd)?;
-                        passwd
+                        get_new_passwd(Some(&hsm))?
                     };
+
+                    let secret_writer =
+                        PrinterSecretWriter::new(Some(&print_dev));
+                    secret_writer.password(&passwd_new)?;
+
                     hsm.dump_attest_cert::<String>(None)?;
                     hsm.replace_default_auth(&passwd_new)
                 }
