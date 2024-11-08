@@ -9,6 +9,7 @@ use log::{debug, error, info, LevelFilter};
 use std::{
     collections::HashMap,
     env, fs,
+    ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -21,15 +22,18 @@ use oks::{
         self, CsrSpec, DcsrSpec, KeySpec, Transport, CSRSPEC_EXT, DCSRSPEC_EXT,
         ENV_NEW_PASSWORD, ENV_PASSWORD, KEYSPEC_EXT,
     },
-    hsm::{Hsm, LIMIT, VERIFIER_FILE},
+    hsm::{Hsm, Share, Verifier, LIMIT, THRESHOLD},
+    secret_reader::{StdioPasswordReader, StdioShareReader},
     secret_writer::{PrinterSecretWriter, DEFAULT_PRINT_DEV},
     util,
 };
 
-const PASSWD_PROMPT: &str = "Enter new password: ";
-const PASSWD_PROMPT2: &str = "Enter password again to confirm: ";
+const PASSWD_PROMPT: &str = "Enter YubiHSM Password: ";
+const PASSWD_NEW: &str = "Enter new password: ";
+const PASSWD_NEW_2: &str = "Enter password again to confirm: ";
 
 const GEN_PASSWD_LENGTH: usize = 16;
+const VERIFIER_FILE: &str = "verifier.json";
 
 // when we write out signed certs to the file system this suffix is appended
 const CERT_SUFFIX: &str = "cert.pem";
@@ -163,7 +167,13 @@ enum HsmCommand {
     },
 
     /// Restore a previously split aes256-ccm-wrap key
-    Restore,
+    Restore {
+        #[clap(long, env, default_value = "input")]
+        backups: PathBuf,
+
+        #[clap(long, env, default_value = "input/verifier.json")]
+        verifier: PathBuf,
+    },
 
     /// Get serial number from YubiHSM and dump to console.
     SerialNumber,
@@ -200,7 +210,7 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
                 print_dev: _,
                 passwd_challenge: _,
             }
-            | HsmCommand::Restore
+            | HsmCommand::Restore { .. }
             | HsmCommand::SerialNumber => 1,
             // otherwise we assume the auth key that we create is
             // present: auth_id 2
@@ -211,14 +221,18 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
 
 /// Get password either from environment, the YubiHSM2 default, or challenge
 /// the user with a password prompt.
-fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
-    match env::var(ENV_PASSWORD).ok() {
-        Some(s) => Ok(s),
+fn get_passwd(
+    auth_id: Option<Id>,
+    command: &HsmCommand,
+) -> Result<Zeroizing<String>> {
+    let passwd = match env::var(ENV_PASSWORD).ok() {
+        Some(s) => Zeroizing::new(s),
         None => {
+            let passwd_reader = StdioPasswordReader::default();
             if auth_id.is_some() {
                 // if auth_id was set by the caller but not the password we
                 // prompt for the password
-                Ok(rpassword::prompt_password("Enter YubiHSM Password: ")?)
+                passwd_reader.read(PASSWD_PROMPT)?
             } else {
                 match command {
                     // if password isn't set, auth_id isn't set, and
@@ -229,47 +243,52 @@ fn get_passwd(auth_id: Option<Id>, command: &HsmCommand) -> Result<String> {
                         print_dev: _,
                         passwd_challenge: _,
                     }
-                    | HsmCommand::Restore
-                    | HsmCommand::SerialNumber => Ok("password".to_string()),
+                    | HsmCommand::Restore { .. }
+                    | HsmCommand::SerialNumber => {
+                        Zeroizing::new("password".to_string())
+                    }
                     // otherwise prompt the user for the password
-                    _ => Ok(rpassword::prompt_password(
-                        "Enter YubiHSM Password: ",
-                    )?),
+                    _ => passwd_reader.read(PASSWD_PROMPT)?,
                 }
             }
         }
-    }
+    };
+
+    Ok(passwd)
 }
 
 /// get a new password from the environment or by issuing a challenge the user
 fn get_new_passwd(hsm: Option<&Hsm>) -> Result<Zeroizing<String>> {
-    match env::var(ENV_NEW_PASSWORD).ok() {
+    let passwd = match env::var(ENV_NEW_PASSWORD).ok() {
         // prefer new password from env above all else
         Some(s) => {
             info!("got password from env");
-            Ok(Zeroizing::new(s))
+            Zeroizing::new(s)
         }
         None => match hsm {
             // use the HSM otherwise if available
             Some(hsm) => {
                 info!("Generating random password");
-                Ok(Zeroizing::new(hsm.rand_string(GEN_PASSWD_LENGTH)?))
+                Zeroizing::new(hsm.rand_string(GEN_PASSWD_LENGTH)?)
             }
             // last option: challenge the caller
-            None => loop {
-                let password =
-                    Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT)?);
-                let password2 =
-                    Zeroizing::new(rpassword::prompt_password(PASSWD_PROMPT2)?);
-                if password != password2 {
-                    error!("the passwords entered do not match");
-                } else {
-                    debug!("got the same password twice");
-                    return Ok(password);
+            None => {
+                let passwd_reader = StdioPasswordReader::default();
+                loop {
+                    let password = passwd_reader.read(PASSWD_NEW)?;
+                    let password2 = passwd_reader.read(PASSWD_NEW_2)?;
+                    if password != password2 {
+                        error!("the passwords entered do not match");
+                    } else {
+                        debug!("got the same password twice");
+                        break password;
+                    }
                 }
-            },
+            }
         },
-    }
+    };
+
+    Ok(passwd)
 }
 
 /// Perform all operations that make up the ceremony for provisioning an
@@ -746,9 +765,22 @@ fn main() -> Result<()> {
                     hsm.replace_default_auth(&passwd_new)
                 }
                 HsmCommand::Generate { key_spec } => hsm.generate(&key_spec),
-                HsmCommand::Restore => {
-                    hsm.restore_wrap()?;
-                    oks::hsm::restore(&hsm.client, &hsm.state_dir)?;
+                HsmCommand::Restore { backups, verifier } => {
+                    let verifier = fs::read_to_string(verifier)?;
+                    let verifier: Verifier = serde_json::from_str(&verifier)?;
+                    let share_itr = StdioShareReader::new(verifier);
+
+                    let mut shares: Zeroizing<Vec<Share>> =
+                        Zeroizing::new(Vec::new());
+                    for share in share_itr {
+                        shares.deref_mut().push(*share?.deref());
+                        if shares.len() >= THRESHOLD {
+                            break;
+                        }
+                    }
+
+                    hsm.restore_wrap(shares)?;
+                    oks::hsm::restore(&hsm.client, backups)?;
                     info!("Deleting default authentication key");
                     oks::hsm::delete(&hsm.client, 1, Type::AuthenticationKey)
                 }
