@@ -21,7 +21,7 @@ num-bigint = "0.4.6"
 p256 = "0.12"
 pem-rfc7468 = { version = "0.7.0", features = ["alloc", "std"] }
 rand = "0.8.5"
-rand_chacha = "0.3.1"
+rand_core = { version = "0.6.4", features = ["std"] }
 rpassword = "7.3.1"
 serde = "1.0.210"
 serde_json = "1.0.128"
