@@ -7,7 +7,7 @@ use log::{debug, error, info};
 use p256::elliptic_curve::PrimeField;
 use p256::{NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
 use pem_rfc7468::LineEnding;
-use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
+use rand_core::{impls, CryptoRng, Error as RngError, RngCore};
 use static_assertions as sa;
 use std::collections::HashSet;
 use std::{
@@ -37,7 +37,6 @@ const CAPS: Capability = Capability::all();
 const DELEGATED_CAPS: Capability = Capability::all();
 const DOMAIN: Domain = Domain::all();
 const ID: Id = 0x1;
-const SEED_LEN: usize = 32;
 const KEY_LEN: usize = 32;
 const SHARE_LEN: usize = KEY_LEN + 1;
 const LABEL: &str = "backup";
@@ -208,24 +207,18 @@ impl Hsm {
     /// then put the key into the YubiHSM. The shares and the verifier are then
     /// returned to the caller. Generally they will then be distributed
     /// 'off-platform' somehow.
-    pub fn new_split_wrap(&self) -> Result<(Zeroizing<SharesMax>, Verifier)> {
+    pub fn new_split_wrap(
+        &mut self,
+    ) -> Result<(Zeroizing<SharesMax>, Verifier)> {
         info!(
             "Generating wrap / backup key from HSM PRNG with label: \"{}\"",
             LABEL.to_string()
         );
         // get 32 bytes from YubiHSM PRNG
         // TODO: zeroize
-        let wrap_key = self.client.get_pseudo_random(KEY_LEN)?;
-        let rng_seed = self.client.get_pseudo_random(SEED_LEN)?;
-        let rng_seed: [u8; SEED_LEN] =
-            rng_seed.try_into().map_err(|v: Vec<u8>| {
-                anyhow::anyhow!(
-                    "Expected vec with {} elements, got {}",
-                    SEED_LEN,
-                    v.len()
-                )
-            })?;
-        let mut rng = ChaCha20Rng::from_seed(rng_seed);
+        let mut wrap_key = [0u8; KEY_LEN];
+        self.try_fill_bytes(&mut wrap_key)?;
+        let wrap_key = wrap_key;
 
         info!("Splitting wrap key into {} shares.", LIMIT);
         let wrap_key = SecretKey::from_be_bytes(&wrap_key)?;
@@ -237,9 +230,9 @@ impl Hsm {
         let (shares, verifier) = Feldman::<THRESHOLD, LIMIT>::split_secret::<
             Scalar,
             ProjectivePoint,
-            ChaCha20Rng,
+            Self,
             SHARE_LEN,
-        >(*nzs.as_ref(), None, &mut rng)
+        >(*nzs.as_ref(), None, &mut *self)
         .map_err(|e| HsmError::SplitKeyFailed { e })?;
 
         // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
@@ -465,6 +458,33 @@ impl Hsm {
         Ok(fs::write(&attest_path, attest_cert)?)
     }
 }
+
+impl RngCore for Hsm {
+    fn next_u32(&mut self) -> u32 {
+        impls::next_u32_via_fill(self)
+    }
+    fn next_u64(&mut self) -> u64 {
+        impls::next_u64_via_fill(self)
+    }
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.try_fill_bytes(dest)
+            .expect("RNG failed to fill the provided buffer.")
+    }
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), RngError> {
+        // The yubihsm.rs client allocates memory for the bytes that we
+        // request here. Then we copy them to the slice provided by the
+        // caller. API impedence mismatch.
+        let bytes = match self.client.get_pseudo_random(dest.len()) {
+            Ok(b) => Ok(b),
+            Err(e) => Err(RngError::new(e)),
+        }?;
+        dest.copy_from_slice(&bytes);
+        Ok(())
+    }
+}
+
+// This is required for Feldman::split_secret to use `Hms` as an RNG.
+impl CryptoRng for Hsm {}
 
 /// Provided a key ID and a object type this function will find the object
 /// in the HSM and generate the appropriate KeySpec for it.

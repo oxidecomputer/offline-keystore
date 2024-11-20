@@ -304,7 +304,7 @@ fn do_ceremony<P: AsRef<Path>>(
     let passwd_new = {
         // assume YubiHSM is in default state: use default auth credentials
         let passwd = "password".to_string();
-        let hsm = Hsm::new(
+        let mut hsm = Hsm::new(
             1,
             &passwd,
             &args.output,
@@ -689,7 +689,7 @@ fn main() -> Result<()> {
         } => {
             let passwd = get_passwd(auth_id, &command)?;
             let auth_id = get_auth_id(auth_id, &command);
-            let hsm = Hsm::new(
+            let mut hsm = Hsm::new(
                 auth_id,
                 &passwd,
                 &args.output,
