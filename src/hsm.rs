@@ -4,21 +4,16 @@
 
 use anyhow::{Context, Result};
 use log::{debug, error, info};
-use p256::elliptic_curve::PrimeField;
-use p256::{NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
 use pem_rfc7468::LineEnding;
 use rand_core::{impls, CryptoRng, Error as RngError, RngCore};
-use static_assertions as sa;
 use std::collections::HashSet;
 use std::{
     fs,
     io::{self, Write},
-    ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
 };
 use thiserror::Error;
-use vsss_rs::{Feldman, FeldmanVerifier};
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
     object::{Id, Label, Type},
@@ -28,7 +23,10 @@ use yubihsm::{
 };
 use zeroize::Zeroizing;
 
-use crate::config::{self, KeySpec, Transport, KEYSPEC_EXT};
+use crate::{
+    backup::BackupKey,
+    config::{self, KeySpec, Transport, KEYSPEC_EXT},
+};
 
 const WRAP_ID: Id = 1;
 
@@ -37,20 +35,10 @@ const CAPS: Capability = Capability::all();
 const DELEGATED_CAPS: Capability = Capability::all();
 const DOMAIN: Domain = Domain::all();
 const ID: Id = 0x1;
-const KEY_LEN: usize = 32;
-const SHARE_LEN: usize = KEY_LEN + 1;
 const LABEL: &str = "backup";
-
-pub const LIMIT: usize = 5;
-pub const THRESHOLD: usize = 3;
-sa::const_assert!(THRESHOLD <= LIMIT);
 
 const BACKUP_EXT: &str = ".backup.json";
 const ATTEST_FILE_NAME: &str = "hsm.attest.cert.pem";
-
-pub type Share = vsss_rs::Share<SHARE_LEN>;
-pub type SharesMax = [Share; LIMIT];
-pub type Verifier = FeldmanVerifier<Scalar, ProjectivePoint, THRESHOLD>;
 
 #[derive(Error, Debug)]
 pub enum HsmError {
@@ -207,45 +195,22 @@ impl Hsm {
     /// then put the key into the YubiHSM. The shares and the verifier are then
     /// returned to the caller. Generally they will then be distributed
     /// 'off-platform' somehow.
-    pub fn new_split_wrap(
-        &mut self,
-    ) -> Result<(Zeroizing<SharesMax>, Verifier)> {
+    pub fn import_backup_key(&mut self, key: BackupKey) -> Result<()> {
         info!(
             "Generating wrap / backup key from HSM PRNG with label: \"{}\"",
             LABEL.to_string()
         );
-        // get 32 bytes from YubiHSM PRNG
-        // TODO: zeroize
-        let mut wrap_key = [0u8; KEY_LEN];
-        self.try_fill_bytes(&mut wrap_key)?;
-        let wrap_key = wrap_key;
 
-        info!("Splitting wrap key into {} shares.", LIMIT);
-        let wrap_key = SecretKey::from_be_bytes(&wrap_key)?;
-        debug!("wrap key: {:?}", wrap_key.to_be_bytes());
-
-        let nzs = wrap_key.to_nonzero_scalar();
-        // we add a byte to the key length per instructions from the library:
-        // https://docs.rs/vsss-rs/2.7.1/src/vsss_rs/lib.rs.html#34
-        let (shares, verifier) = Feldman::<THRESHOLD, LIMIT>::split_secret::<
-            Scalar,
-            ProjectivePoint,
-            Self,
-            SHARE_LEN,
-        >(*nzs.as_ref(), None, &mut *self)
-        .map_err(|e| HsmError::SplitKeyFailed { e })?;
-
-        // put 32 random bytes into the YubiHSM as an Aes256Ccm wrap key
         info!("Storing wrap key in YubiHSM.");
         let id = self.client
-            .put_wrap_key::<[u8; 32]>(
+            .put_wrap_key(
                 ID,
                 Label::from_bytes(LABEL.as_bytes())?,
                 DOMAIN,
                 CAPS,
                 DELEGATED_CAPS,
                 ALG,
-                wrap_key.to_be_bytes().into(),
+                key.as_bytes(),
             )
             .with_context(|| {
                 format!(
@@ -257,8 +222,7 @@ impl Hsm {
         // Future commands assume that our wrap key has id 1. If we got a wrap
         // key with any other id the HSM isn't in the state we think it is.
         assert_eq!(id, WRAP_ID);
-
-        Ok((Zeroizing::new(shares), verifier))
+        Ok(())
     }
 
     // create a new auth key, remove the default auth key, then export the new
@@ -371,57 +335,6 @@ impl Hsm {
         fs::write(attest_path, attest_cert)?;
 
         Ok(id)
-    }
-
-    /// This function prompts the user to enter M of the N backup shares. It
-    /// uses these shares to reconstitute the wrap key. This wrap key can then
-    /// be used to restore previously backed up / export wrapped keys.
-    /// This function prompts the user to enter M of the N backup shares. It
-    /// uses these shares to reconstitute the wrap key. This wrap key can then
-    /// be used to restore previously backed up / export wrapped keys.
-    pub fn restore_wrap(&self, shares: Zeroizing<Vec<Share>>) -> Result<()> {
-        info!("Restoring HSM from backup");
-
-        if shares.len() < THRESHOLD {
-            return Err(HsmError::NotEnoughShares.into());
-        }
-
-        let scalar = Feldman::<THRESHOLD, LIMIT>::combine_shares::<
-            Scalar,
-            SHARE_LEN,
-        >(shares.deref())
-        .map_err(|e| HsmError::CombineKeyFailed { e })?;
-
-        let nz_scalar = NonZeroScalar::from_repr(scalar.to_repr());
-        let nz_scalar = if nz_scalar.is_some().into() {
-            nz_scalar.unwrap()
-        } else {
-            return Err(HsmError::BadScalar.into());
-        };
-        let wrap_key = SecretKey::from(nz_scalar);
-
-        debug!("restored wrap key: {:?}", wrap_key.to_be_bytes());
-
-        // put restored wrap key the YubiHSM as an Aes256Ccm wrap key
-        let id = self.client
-            .put_wrap_key::<[u8; KEY_LEN]>(
-                ID,
-                Label::from_bytes(LABEL.as_bytes())?,
-                DOMAIN,
-                CAPS,
-                DELEGATED_CAPS,
-                ALG,
-                wrap_key.to_be_bytes().into(),
-            )
-            .with_context(|| {
-                format!(
-                    "Failed to put wrap key into YubiHSM domains {:?} with id {}",
-                    DOMAIN, ID
-                )
-            })?;
-        info!("wrap id: {}", id);
-
-        Ok(())
     }
 
     /// Write the cert for default attesation key in hsm to the provided
@@ -605,158 +518,4 @@ fn are_you_sure() -> Result<bool> {
     debug!("got: \"{}\"", buffer);
 
     Ok(buffer == "y")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // secret split into the feldman verifier & shares below
-    const SECRET: &str =
-        "f259a45c17624b9317d8e292050c46a0f3d7387724b4cd26dd94f8bd3d1c0e1a";
-
-    // verifier created and serialized to json by `new_split_wrap`
-    const VERIFIER: &str = r#"
-    {
-        "generator": "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
-        "commitments": [
-            "022f65c477affe7de97a51b8e562e763030218a8f0a8ecd7c349a50df7ded44985",
-            "03365076080ebeeab74e2421fa0f4e4c5796ad3cbd157cc0405b100a45ae89f22f",
-            "02bbd29359d702ff89ab2cbdb9e6ae102dfb1c4108aeab0701a469f28f0ad1e813"
-        ]
-    }"#;
-
-    // shares dumped to the printer by `new_split_wrap`
-    const SHARE_ARRAY: [&str; LIMIT] = [
-        "01a69b62eb1a7c9deb5435ca73bf6f5e280279ba9cbdcd873d4decb665fb8aaf34",
-        "020495513aa59e274196125218ff57b2f01f6bf97d817d24a1a00c5fbf29af08a8",
-        "030c476f49b8c6e796dd6e7981c4c544f90794efc716db43d8c7adbf8bc3ec3fc7",
-        "04bdb1bd1853f6deeb2a4a40ae0fb81442baf49d797de7e4e2c4d0d5cbca425491",
-        "0518d43aa8772e0d3c7ca5a79de03020cdbfbd0d396873cab5b0020cf943eafc64",
-    ];
-
-    fn secret_bytes() -> [u8; KEY_LEN] {
-        let mut secret = [0u8; KEY_LEN];
-        hex::decode_to_slice(SECRET, &mut secret).unwrap();
-
-        secret
-    }
-
-    fn deserialize_share(share: &str) -> Result<Share> {
-        // filter out whitespace to keep hex::decode happy
-        let share: String =
-            share.chars().filter(|c| !c.is_whitespace()).collect();
-        let share = hex::decode(share)
-            .context("failed to decode share from hex string")?;
-
-        Ok(Share::try_from(&share[..])
-            .context("Failed to construct Share from bytes.")?)
-    }
-
-    #[test]
-    fn round_trip() -> Result<()> {
-        use rand::rngs::ThreadRng;
-
-        let secret = secret_bytes();
-        let secret_key = SecretKey::from_be_bytes(&secret)?;
-        let nzs = secret_key.to_nonzero_scalar();
-
-        let mut rng = ThreadRng::default();
-        let (shares, verifier) = Feldman::<THRESHOLD, LIMIT>::split_secret::<
-            Scalar,
-            ProjectivePoint,
-            ThreadRng,
-            SHARE_LEN,
-        >(*nzs.as_ref(), None, &mut rng)
-        .map_err(|e| anyhow::anyhow!("failed to split secret: {}", e))?;
-
-        for s in &shares {
-            assert!(verifier.verify(s));
-        }
-
-        let scalar = Feldman::<THRESHOLD, LIMIT>::combine_shares::<
-            Scalar,
-            SHARE_LEN,
-        >(&shares)
-        .map_err(|e| anyhow::anyhow!("failed to combine secret: {}", e))?;
-
-        let nzs_dup = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
-        let sk_dup = SecretKey::from(nzs_dup);
-        let new_secret: [u8; KEY_LEN] = sk_dup.to_be_bytes().try_into()?;
-
-        assert_eq!(new_secret, secret);
-
-        Ok(())
-    }
-
-    // deserialize a verifier & use it to verify the shares in SHARE_ARRAY
-    #[test]
-    fn verify_shares() -> Result<()> {
-        let verifier: Verifier = serde_json::from_str(VERIFIER)
-            .context("Failed to deserialize Verifier from JSON.")?;
-
-        for share in SHARE_ARRAY {
-            let share = deserialize_share(share)?;
-            assert!(verifier.verify(&share));
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn verify_zero_share() -> Result<()> {
-        let verifier: Verifier = serde_json::from_str(VERIFIER)
-            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
-
-        let share = Share::try_from([0u8; SHARE_LEN].as_ref())
-            .context("Failed to create Share from static array.")?;
-
-        assert!(!verifier.verify(&share));
-
-        Ok(())
-    }
-
-    // TODO: I had expected that changing a single bit in a share would case
-    // the verifier to fail but that seems to be very wrong.
-    #[test]
-    fn verify_share_with_changed_byte() -> Result<()> {
-        let verifier: Verifier = serde_json::from_str(VERIFIER)
-            .context("Failed to deserialize FeldmanVerifier from JSON.")?;
-
-        let mut share = deserialize_share(SHARE_ARRAY[0])?;
-        println!("share: {}", share.0[0]);
-        share.0[1] = 0xff;
-        share.0[2] = 0xff;
-        share.0[3] = 0xff;
-        // If we don't change the next byte this test will start failing.
-        // I had (wrongly?) expected that the share would fail to verify w/
-        // a single changed byte
-        share.0[4] = 0xff;
-
-        assert!(!verifier.verify(&share));
-
-        Ok(())
-    }
-
-    #[test]
-    fn recover_secret() -> Result<()> {
-        let mut shares: Vec<Share> = Vec::new();
-        for share in SHARE_ARRAY {
-            shares.push(deserialize_share(share)?);
-        }
-
-        let scalar = Feldman::<THRESHOLD, LIMIT>::combine_shares::<
-            Scalar,
-            SHARE_LEN,
-        >(&shares)
-        .map_err(|e| anyhow::anyhow!("failed to combine secret: {}", e))?;
-
-        let nzs_dup = NonZeroScalar::from_repr(scalar.to_repr()).unwrap();
-        let sk_dup = SecretKey::from(nzs_dup);
-        let secret: [u8; KEY_LEN] = sk_dup.to_be_bytes().try_into()?;
-
-        assert_eq!(secret, secret_bytes());
-
-        Ok(())
-    }
 }

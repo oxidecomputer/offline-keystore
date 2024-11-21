@@ -9,7 +9,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-use crate::hsm::{Share, Verifier};
+use crate::backup::{Share, Verifier};
 
 #[derive(Default)]
 pub struct StdioPasswordReader {}

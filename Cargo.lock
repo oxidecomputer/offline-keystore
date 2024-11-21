@@ -1059,6 +1059,7 @@ dependencies = [
  "x509-cert",
  "yubihsm",
  "zeroize",
+ "zeroize_derive",
 ]
 
 [[package]]
