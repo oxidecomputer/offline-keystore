@@ -17,12 +17,13 @@ use yubihsm::object::{Id, Type};
 use zeroize::Zeroizing;
 
 use oks::{
+    backup::{BackupKey, Share, Verifier, LIMIT, THRESHOLD},
     ca::{Ca, CertOrCsr},
     config::{
         self, CsrSpec, DcsrSpec, KeySpec, Transport, CSRSPEC_EXT, DCSRSPEC_EXT,
         ENV_NEW_PASSWORD, ENV_PASSWORD, KEYSPEC_EXT,
     },
-    hsm::{Hsm, Share, Verifier, LIMIT, THRESHOLD},
+    hsm::Hsm,
     secret_reader::{StdioPasswordReader, StdioShareReader},
     secret_writer::{PrinterSecretWriter, DEFAULT_PRINT_DEV},
     util,
@@ -313,7 +314,8 @@ fn do_ceremony<P: AsRef<Path>>(
             args.transport,
         )?;
 
-        let (shares, verifier) = hsm.new_split_wrap()?;
+        let wrap = BackupKey::from_rng(&mut hsm)?;
+        let (shares, verifier) = wrap.split(&mut hsm)?;
         let verifier = serde_json::to_string(&verifier)?;
         debug!("JSON: {}", verifier);
         let verifier_path = args.output.join(VERIFIER_FILE);
@@ -354,6 +356,8 @@ fn do_ceremony<P: AsRef<Path>>(
             );
             util::wait_for_line()?;
         }
+
+        hsm.import_backup_key(wrap)?;
         info!("Collecting YubiHSM attestation cert.");
         hsm.dump_attest_cert::<String>(None)?;
 
@@ -704,7 +708,8 @@ fn main() -> Result<()> {
                     passwd_challenge,
                 } => {
                     debug!("Initialize");
-                    let (shares, verifier) = hsm.new_split_wrap()?;
+                    let wrap = BackupKey::from_rng(&mut hsm)?;
+                    let (shares, verifier) = wrap.split(&mut hsm)?;
                     let verifier = serde_json::to_string(&verifier)?;
                     debug!("JSON: {}", verifier);
                     let verifier_path = args.output.join(VERIFIER_FILE);
@@ -761,6 +766,7 @@ fn main() -> Result<()> {
                         PrinterSecretWriter::new(Some(&print_dev));
                     secret_writer.password(&passwd_new)?;
 
+                    hsm.import_backup_key(wrap)?;
                     hsm.dump_attest_cert::<String>(None)?;
                     hsm.replace_default_auth(&passwd_new)
                 }
@@ -779,7 +785,8 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    hsm.restore_wrap(shares)?;
+                    let wrap = BackupKey::from_shares(shares)?;
+                    hsm.import_backup_key(wrap)?;
                     oks::hsm::restore(&hsm.client, backups)?;
                     info!("Deleting default authentication key");
                     oks::hsm::delete(&hsm.client, 1, Type::AuthenticationKey)

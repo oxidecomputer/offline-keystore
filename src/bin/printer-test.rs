@@ -7,10 +7,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use hex::ToHex;
-use oks::{
-    hsm::{Alphabet, Share},
-    secret_writer::PrinterSecretWriter,
-};
+use oks::{backup::Share, hsm::Alphabet, secret_writer::PrinterSecretWriter};
 use rand::{thread_rng, Rng};
 use zeroize::Zeroizing;
 

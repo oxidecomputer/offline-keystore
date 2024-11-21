@@ -11,7 +11,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-use crate::{hsm::Share, util};
+use crate::{backup::Share, util};
 
 pub const DEFAULT_PRINT_DEV: &str = "/dev/usb/lp0";
 
