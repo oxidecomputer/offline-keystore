@@ -17,6 +17,7 @@ use yubihsm::object::{Id, Type};
 use zeroize::Zeroizing;
 
 use oks::{
+    alphabet::Alphabet,
     backup::{BackupKey, Share, Verifier, LIMIT, THRESHOLD},
     ca::{Ca, CertOrCsr},
     config::{
@@ -259,7 +260,7 @@ fn get_passwd(
 }
 
 /// get a new password from the environment or by issuing a challenge the user
-fn get_new_passwd(hsm: Option<&Hsm>) -> Result<Zeroizing<String>> {
+fn get_new_passwd(hsm: Option<&mut Hsm>) -> Result<Zeroizing<String>> {
     let passwd = match env::var(ENV_NEW_PASSWORD).ok() {
         // prefer new password from env above all else
         Some(s) => {
@@ -270,7 +271,10 @@ fn get_new_passwd(hsm: Option<&Hsm>) -> Result<Zeroizing<String>> {
             // use the HSM otherwise if available
             Some(hsm) => {
                 info!("Generating random password");
-                Zeroizing::new(hsm.rand_string(GEN_PASSWD_LENGTH)?)
+                let alpha = Alphabet::default();
+                let password =
+                    alpha.get_random_string(&mut *hsm, GEN_PASSWD_LENGTH)?;
+                Zeroizing::new(password)
             }
             // last option: challenge the caller
             None => {
@@ -364,7 +368,7 @@ fn do_ceremony<P: AsRef<Path>>(
         let passwd = if challenge {
             get_new_passwd(None)?
         } else {
-            get_new_passwd(Some(&hsm))?
+            get_new_passwd(Some(&mut hsm))?
         };
 
         secret_writer.password(&passwd)?;
@@ -759,7 +763,7 @@ fn main() -> Result<()> {
                     let passwd_new = if passwd_challenge {
                         get_new_passwd(None)?
                     } else {
-                        get_new_passwd(Some(&hsm))?
+                        get_new_passwd(Some(&mut hsm))?
                     };
 
                     let secret_writer =

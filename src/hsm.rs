@@ -6,7 +6,6 @@ use anyhow::{Context, Result};
 use log::{debug, error, info};
 use pem_rfc7468::LineEnding;
 use rand_core::{impls, CryptoRng, Error as RngError, RngCore};
-use std::collections::HashSet;
 use std::{
     fs,
     io::{self, Write},
@@ -64,81 +63,11 @@ pub enum HsmError {
     NotEnoughShares,
 }
 
-pub struct Alphabet {
-    chars: Vec<char>,
-}
-
-impl Default for Alphabet {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Alphabet {
-    pub fn new() -> Self {
-        let mut chars: HashSet<char> = HashSet::new();
-        chars.extend('a'..='z');
-        chars.extend('A'..='Z');
-        chars.extend('0'..='9');
-
-        // Remove visually similar characters
-        chars = &chars - &HashSet::from(['l', 'I', '1']);
-        chars = &chars - &HashSet::from(['B', '8']);
-        chars = &chars - &HashSet::from(['O', '0']);
-
-        // We generate random passwords from this alphabet by getting a byte
-        // of random data from the HSM and using this value to pick
-        // characters from the alphabet. Our alphabet cannot be larger than
-        // the u8::MAX or it will ignore characters after the u8::MAXth.
-        assert!(usize::from(u8::MAX) > chars.len());
-
-        Alphabet {
-            chars: chars.into_iter().collect(),
-        }
-    }
-
-    pub fn get_char(&self, val: u8) -> Option<char> {
-        let len = self.chars.len() as u8;
-        // let rand = ;
-        // Avoid biasing results by ensuring the random values we use
-        // are a multiple of the length of the alphabet. If they aren't
-        // we just get another.
-        if val < u8::MAX - u8::MAX % len {
-            Some(self.chars[(val % len) as usize])
-        } else {
-            None
-        }
-    }
-
-    pub fn get_random_string(
-        &self,
-        get_rand_u8: impl Fn() -> Result<u8>,
-        length: usize,
-    ) -> Result<String> {
-        let mut passwd = String::with_capacity(length + 1);
-
-        for _ in 0..length {
-            let char = loop {
-                let rand = get_rand_u8()?;
-
-                if let Some(char) = self.get_char(rand) {
-                    break char;
-                }
-            };
-
-            passwd.push(char);
-        }
-
-        Ok(passwd)
-    }
-}
-
 /// Structure holding common data used by OKS when interacting with the HSM.
 pub struct Hsm {
     pub client: Client,
     pub out_dir: PathBuf,
     pub state_dir: PathBuf,
-    pub alphabet: Alphabet,
     pub backup: bool,
 }
 
@@ -179,16 +108,8 @@ impl Hsm {
             client,
             out_dir: out_dir.to_path_buf(),
             state_dir: state_dir.to_path_buf(),
-            alphabet: Alphabet::new(),
             backup,
         })
-    }
-
-    pub fn rand_string(&self, length: usize) -> Result<String> {
-        self.alphabet.get_random_string(
-            || Ok(self.client.get_pseudo_random(1)?[0]),
-            length,
-        )
     }
 
     /// Create a new wrap key, cut it up into shares, & a Feldman verifier,
