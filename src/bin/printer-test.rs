@@ -7,8 +7,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use hex::ToHex;
-use oks::{backup::Share, hsm::Alphabet, secret_writer::PrinterSecretWriter};
-use rand::{thread_rng, Rng};
+use oks::{
+    alphabet::Alphabet, backup::Share, secret_writer::PrinterSecretWriter,
+};
+use rand::thread_rng;
 use zeroize::Zeroizing;
 
 #[derive(Parser)]
@@ -56,8 +58,9 @@ fn main() -> Result<()> {
             secret_writer.share(share_idx, share_count, &share)
         }
         Command::HsmPassword { length } => {
-            let password = Alphabet::new()
-                .get_random_string(|| Ok(thread_rng().gen::<u8>()), length)?;
+            let mut rng = thread_rng();
+            let password =
+                Alphabet::new().get_random_string(&mut rng, length)?;
             let password = Zeroizing::new(password);
             secret_writer.password(&password)
         }
