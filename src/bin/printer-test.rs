@@ -8,7 +8,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use hex::ToHex;
 use oks::{
-    alphabet::Alphabet, backup::Share, secret_writer::PrinterSecretWriter,
+    alphabet::Alphabet,
+    backup::Share,
+    secret_writer::{PrinterSecretWriter, SecretWriter},
 };
 use rand::thread_rng;
 use zeroize::Zeroizing;

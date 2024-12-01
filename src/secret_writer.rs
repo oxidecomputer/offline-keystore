@@ -3,8 +3,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::Result;
+use clap::{builder::ArgPredicate, ValueEnum};
 use hex::ToHex;
 use std::{
+    ffi::OsStr,
     fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -31,6 +33,49 @@ const LF: u8 = 0x0a;
 const FF: u8 = 0x0c;
 const CR: u8 = 0x0d;
 
+#[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq)]
+pub enum SecretOutput {
+    #[default]
+    Printer,
+}
+
+impl From<SecretOutput> for ArgPredicate {
+    fn from(val: SecretOutput) -> Self {
+        let rep = match val {
+            SecretOutput::Printer => SecretOutput::Printer.into(),
+        };
+        ArgPredicate::Equals(OsStr::new(rep).into())
+    }
+}
+
+impl From<SecretOutput> for &str {
+    fn from(val: SecretOutput) -> Self {
+        match val {
+            SecretOutput::Printer => "printer",
+        }
+    }
+}
+
+pub fn get_writer<P: AsRef<Path>>(
+    kind: SecretOutput,
+    secret_dev: Option<P>,
+) -> Box<dyn SecretWriter> {
+    let w = match kind {
+        SecretOutput::Printer => PrinterSecretWriter::new(secret_dev),
+    };
+    Box::new(w)
+}
+
+pub trait SecretWriter {
+    fn password(&self, password: &Zeroizing<String>) -> Result<()>;
+    fn share(
+        &self,
+        index: usize,
+        limit: usize,
+        share: &Zeroizing<Share>,
+    ) -> Result<()>;
+}
+
 /// This type exports secrets by writing them to a printer.
 /// This has only been tested with an Epson ESC/P.
 pub struct PrinterSecretWriter {
@@ -46,8 +91,10 @@ impl PrinterSecretWriter {
 
         Self { device }
     }
+}
 
-    pub fn password(&self, password: &Zeroizing<String>) -> Result<()> {
+impl SecretWriter for PrinterSecretWriter {
+    fn password(&self, password: &Zeroizing<String>) -> Result<()> {
         println!(
             "\nWARNING: The HSM authentication password has been created and stored in\n\
             the YubiHSM. It will now be printed to {}.\n\
@@ -103,7 +150,7 @@ impl PrinterSecretWriter {
         Ok(())
     }
 
-    pub fn share(
+    fn share(
         &self,
         index: usize,
         limit: usize,

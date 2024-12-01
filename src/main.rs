@@ -25,8 +25,8 @@ use oks::{
         ENV_NEW_PASSWORD, ENV_PASSWORD, KEYSPEC_EXT,
     },
     hsm::Hsm,
-    secret_reader::{StdioPasswordReader, StdioShareReader},
-    secret_writer::{PrinterSecretWriter, DEFAULT_PRINT_DEV},
+    secret_reader::{self, PasswordReader, SecretInput, StdioPasswordReader},
+    secret_writer::{self, SecretOutput, DEFAULT_PRINT_DEV},
     util,
 };
 
@@ -72,6 +72,9 @@ struct Args {
 #[derive(Subcommand, Debug, PartialEq)]
 enum Command {
     Ca {
+        #[clap(long, env)]
+        auth_method: SecretInput,
+
         #[command(subcommand)]
         command: CaCommand,
     },
@@ -105,8 +108,11 @@ enum Command {
         )]
         pkcs11_path: PathBuf,
 
-        #[clap(long, env, default_value = DEFAULT_PRINT_DEV)]
-        print_dev: PathBuf,
+        #[clap(long, env)]
+        secret_method: SecretOutput,
+
+        #[clap(long, env, required = false, default_value = DEFAULT_PRINT_DEV)]
+        secret_dev: PathBuf,
 
         #[clap(long, env)]
         /// Challenge the caller for a new password, don't generate a
@@ -153,32 +159,47 @@ enum CaCommand {
 enum HsmCommand {
     /// Generate keys in YubiHSM from specification.
     Generate {
+        #[clap(long, env)]
+        auth_method: SecretInput,
+
         #[clap(long, env, default_value = "input")]
         key_spec: PathBuf,
     },
 
     /// Initialize the YubiHSM for use in the OKS.
+    // assume default auth for passwd, generate passwd w/ alphabet or stdin,
+    // choose share dst: printer / cdr
     Initialize {
-        #[clap(long, env, default_value = "/dev/usb/lp0")]
-        print_dev: PathBuf,
-
         #[clap(long, env)]
         /// Challenge the caller for a new password, don't generate a
         /// random one for them.
         passwd_challenge: bool,
+
+        #[clap(long, env)]
+        secret_method: SecretOutput,
+
+        #[clap(long, env, required = false, default_value = DEFAULT_PRINT_DEV)]
+        secret_dev: PathBuf,
     },
 
     /// Restore a previously split aes256-ccm-wrap key
+    // assume default auth for passwd, chose share src: stdio / cdr
     Restore {
         #[clap(long, env, default_value = "input")]
         backups: PathBuf,
+
+        #[clap(long, env)]
+        share_method: SecretInput,
 
         #[clap(long, env, default_value = "input/verifier.json")]
         verifier: PathBuf,
     },
 
     /// Get serial number from YubiHSM and dump to console.
-    SerialNumber,
+    SerialNumber {
+        #[clap(long, env)]
+        auth_method: SecretInput,
+    },
 }
 
 fn make_dir(path: &Path) -> Result<()> {
@@ -208,12 +229,9 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
             // for these HSM commands we assume YubiHSM2 is in its
             // default state and we use the default auth credentials:
             // auth_id 1
-            HsmCommand::Initialize {
-                print_dev: _,
-                passwd_challenge: _,
-            }
+            HsmCommand::Initialize { .. }
             | HsmCommand::Restore { .. }
-            | HsmCommand::SerialNumber => 1,
+            | HsmCommand::SerialNumber { .. } => 1,
             // otherwise we assume the auth key that we create is
             // present: auth_id 2
             _ => 2,
@@ -225,12 +243,14 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
 /// the user with a password prompt.
 fn get_passwd(
     auth_id: Option<Id>,
+    auth_method: &SecretInput,
     command: &HsmCommand,
 ) -> Result<Zeroizing<String>> {
     let passwd = match env::var(ENV_PASSWORD).ok() {
         Some(s) => Zeroizing::new(s),
         None => {
-            let passwd_reader = StdioPasswordReader::default();
+            let passwd_reader = secret_reader::get_passwd_reader(*auth_method);
+
             if auth_id.is_some() {
                 // if auth_id was set by the caller but not the password we
                 // prompt for the password
@@ -241,12 +261,9 @@ fn get_passwd(
                     // the command is one of these, we assume the
                     // YubiHSM2 is in its default state so we use the
                     // default password
-                    HsmCommand::Initialize {
-                        print_dev: _,
-                        passwd_challenge: _,
-                    }
+                    HsmCommand::Initialize { .. }
                     | HsmCommand::Restore { .. }
-                    | HsmCommand::SerialNumber => {
+                    | HsmCommand::SerialNumber { .. } => {
                         Zeroizing::new("password".to_string())
                     }
                     // otherwise prompt the user for the password
@@ -302,13 +319,14 @@ fn do_ceremony<P: AsRef<Path>>(
     csr_spec: P,
     key_spec: P,
     pkcs11_path: P,
-    print_dev: P,
+    secret_method: &SecretOutput,
+    secret_dev: P,
     challenge: bool,
     args: &Args,
 ) -> Result<()> {
     let passwd_new = {
         // assume YubiHSM is in default state: use default auth credentials
-        let passwd = "password".to_string();
+        let passwd = Zeroizing::new("password".to_string());
         let mut hsm = Hsm::new(
             1,
             &passwd,
@@ -338,10 +356,11 @@ fn do_ceremony<P: AsRef<Path>>(
             custodian is present in front of the printer.\n\n\
             Press enter to begin the key share recording process ...",
             LIMIT,
-            print_dev.as_ref().display(),
+            secret_dev.as_ref().display(),
         );
 
-        let secret_writer = PrinterSecretWriter::new(Some(print_dev));
+        let secret_writer =
+            secret_writer::get_writer(*secret_method, Some(secret_dev));
         for (i, share) in shares.as_ref().iter().enumerate() {
             let share_num = i + 1;
             println!(
@@ -666,51 +685,62 @@ fn main() -> Result<()> {
     make_dir(&args.state)?;
 
     match args.command {
-        Command::Ca { command } => match command {
-            CaCommand::Initialize {
-                key_spec,
-                pkcs11_path,
-            } => {
-                let _ = initialize_all_ca(
-                    &key_spec,
-                    &pkcs11_path,
-                    &args.state,
-                    &args.output,
-                )?;
-                Ok(())
+        Command::Ca {
+            auth_method,
+            command,
+        } => {
+            // The CA modules pulls the password out of the environment. If
+            // ENV_PASSWORD isn't set the caller will be challenged.
+            let passwd_reader = secret_reader::get_passwd_reader(auth_method);
+            let password = passwd_reader.read(PASSWD_PROMPT)?;
+            std::env::set_var(ENV_PASSWORD, password.deref());
+
+            match command {
+                CaCommand::Initialize {
+                    key_spec,
+                    pkcs11_path,
+                } => {
+                    let _ = initialize_all_ca(
+                        &key_spec,
+                        &pkcs11_path,
+                        &args.state,
+                        &args.output,
+                    )?;
+                    Ok(())
+                }
+                CaCommand::Sign { csr_spec } => {
+                    let cas = load_all_ca(&args.state)?;
+                    sign_all(
+                        &cas,
+                        &csr_spec,
+                        &args.state,
+                        &args.output,
+                        args.transport,
+                    )
+                }
             }
-            CaCommand::Sign { csr_spec } => {
-                let cas = load_all_ca(&args.state)?;
-                sign_all(
-                    &cas,
-                    &csr_spec,
-                    &args.state,
-                    &args.output,
-                    args.transport,
-                )
-            }
-        },
+        }
         Command::Hsm {
             auth_id,
             command,
             no_backup,
         } => {
-            let passwd = get_passwd(auth_id, &command)?;
-            let auth_id = get_auth_id(auth_id, &command);
-            let mut hsm = Hsm::new(
-                auth_id,
-                &passwd,
-                &args.output,
-                &args.state,
-                !no_backup,
-                args.transport,
-            )?;
-
             match command {
                 HsmCommand::Initialize {
-                    print_dev,
                     passwd_challenge,
+                    ref secret_method,
+                    ref secret_dev,
                 } => {
+                    let passwd = Zeroizing::new("password".to_string());
+                    let mut hsm = Hsm::new(
+                        1,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+
                     debug!("Initialize");
                     let wrap = BackupKey::from_rng(&mut hsm)?;
                     let (shares, verifier) = wrap.split(&mut hsm)?;
@@ -732,11 +762,13 @@ fn main() -> Result<()> {
                         custodian is present in front of the printer.\n\n\
                         Press enter to begin the key share recording process ...",
                         LIMIT,
-                        print_dev.display(),
+                        secret_dev.display(),
                     );
 
-                    let secret_writer =
-                        PrinterSecretWriter::new(Some(&print_dev));
+                    let secret_writer = secret_writer::get_writer(
+                        *secret_method,
+                        Some(secret_dev),
+                    );
                     for (i, share) in shares.as_ref().iter().enumerate() {
                         let share_num = i + 1;
                         println!(
@@ -766,19 +798,50 @@ fn main() -> Result<()> {
                         get_new_passwd(Some(&mut hsm))?
                     };
 
-                    let secret_writer =
-                        PrinterSecretWriter::new(Some(&print_dev));
                     secret_writer.password(&passwd_new)?;
 
                     hsm.import_backup_key(wrap)?;
                     hsm.dump_attest_cert::<String>(None)?;
                     hsm.replace_default_auth(&passwd_new)
                 }
-                HsmCommand::Generate { key_spec } => hsm.generate(&key_spec),
-                HsmCommand::Restore { backups, verifier } => {
+                HsmCommand::Generate {
+                    ref auth_method,
+                    ref key_spec,
+                } => {
+                    let passwd = get_passwd(auth_id, auth_method, &command)?;
+                    let auth_id = get_auth_id(auth_id, &command);
+                    let hsm = Hsm::new(
+                        auth_id,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+
+                    hsm.generate(key_spec)
+                }
+                HsmCommand::Restore {
+                    ref backups,
+                    ref share_method,
+                    ref verifier,
+                } => {
+                    let passwd = Zeroizing::new("password".to_string());
+                    let mut hsm = Hsm::new(
+                        1,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+
                     let verifier = fs::read_to_string(verifier)?;
                     let verifier: Verifier = serde_json::from_str(&verifier)?;
-                    let share_itr = StdioShareReader::new(verifier);
+                    let share_itr = secret_reader::get_share_reader(
+                        *share_method,
+                        verifier,
+                    );
 
                     let mut shares: Zeroizing<Vec<Share>> =
                         Zeroizing::new(Vec::new());
@@ -795,20 +858,35 @@ fn main() -> Result<()> {
                     info!("Deleting default authentication key");
                     oks::hsm::delete(&hsm.client, 1, Type::AuthenticationKey)
                 }
-                HsmCommand::SerialNumber => oks::hsm::dump_sn(&hsm.client),
+                HsmCommand::SerialNumber { ref auth_method } => {
+                    let passwd = get_passwd(auth_id, auth_method, &command)?;
+                    let auth_id = get_auth_id(auth_id, &command);
+                    let hsm = Hsm::new(
+                        auth_id,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+
+                    oks::hsm::dump_sn(&hsm.client)
+                }
             }
         }
         Command::Ceremony {
             ref csr_spec,
             ref key_spec,
             ref pkcs11_path,
-            ref print_dev,
+            ref secret_method,
+            ref secret_dev,
             passwd_challenge,
         } => do_ceremony(
             csr_spec,
             key_spec,
             pkcs11_path,
-            print_dev,
+            secret_method,
+            secret_dev,
             passwd_challenge,
             &args,
         ),
