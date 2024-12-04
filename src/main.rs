@@ -25,7 +25,9 @@ use oks::{
         ENV_NEW_PASSWORD, ENV_PASSWORD, KEYSPEC_EXT,
     },
     hsm::Hsm,
-    secret_reader::{self, PasswordReader, SecretInput, StdioPasswordReader},
+    secret_reader::{
+        self, PasswordReader, SecretInputArg, StdioPasswordReader,
+    },
     secret_writer::{self, SecretOutput, DEFAULT_PRINT_DEV},
     util,
 };
@@ -72,8 +74,8 @@ struct Args {
 #[derive(Subcommand, Debug, PartialEq)]
 enum Command {
     Ca {
-        #[clap(long, env)]
-        auth_method: SecretInput,
+        #[clap(flatten)]
+        auth_method: SecretInputArg,
 
         #[command(subcommand)]
         command: CaCommand,
@@ -159,8 +161,8 @@ enum CaCommand {
 enum HsmCommand {
     /// Generate keys in YubiHSM from specification.
     Generate {
-        #[clap(long, env)]
-        auth_method: SecretInput,
+        #[clap(flatten)]
+        auth_method: SecretInputArg,
 
         #[clap(long, env, default_value = "input")]
         key_spec: PathBuf,
@@ -188,8 +190,8 @@ enum HsmCommand {
         #[clap(long, env, default_value = "input")]
         backups: PathBuf,
 
-        #[clap(long, env)]
-        share_method: SecretInput,
+        #[clap(flatten)]
+        share_method: SecretInputArg,
 
         #[clap(long, env, default_value = "input/verifier.json")]
         verifier: PathBuf,
@@ -197,8 +199,8 @@ enum HsmCommand {
 
     /// Get serial number from YubiHSM and dump to console.
     SerialNumber {
-        #[clap(long, env)]
-        auth_method: SecretInput,
+        #[clap(flatten)]
+        auth_method: SecretInputArg,
     },
 }
 
@@ -243,13 +245,14 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
 /// the user with a password prompt.
 fn get_passwd(
     auth_id: Option<Id>,
-    auth_method: &SecretInput,
+    auth_method: &SecretInputArg,
     command: &HsmCommand,
 ) -> Result<Zeroizing<String>> {
     let passwd = match env::var(ENV_PASSWORD).ok() {
         Some(s) => Zeroizing::new(s),
         None => {
-            let passwd_reader = secret_reader::get_passwd_reader(*auth_method);
+            let mut passwd_reader =
+                secret_reader::get_passwd_reader(auth_method)?;
 
             if auth_id.is_some() {
                 // if auth_id was set by the caller but not the password we
@@ -295,7 +298,7 @@ fn get_new_passwd(hsm: Option<&mut Hsm>) -> Result<Zeroizing<String>> {
             }
             // last option: challenge the caller
             None => {
-                let passwd_reader = StdioPasswordReader::default();
+                let mut passwd_reader = StdioPasswordReader::default();
                 loop {
                     let password = passwd_reader.read(PASSWD_NEW)?;
                     let password2 = passwd_reader.read(PASSWD_NEW_2)?;
@@ -691,7 +694,8 @@ fn main() -> Result<()> {
         } => {
             // The CA modules pulls the password out of the environment. If
             // ENV_PASSWORD isn't set the caller will be challenged.
-            let passwd_reader = secret_reader::get_passwd_reader(auth_method);
+            let mut passwd_reader =
+                secret_reader::get_passwd_reader(&auth_method)?;
             let password = passwd_reader.read(PASSWD_PROMPT)?;
             std::env::set_var(ENV_PASSWORD, password.deref());
 
@@ -839,9 +843,9 @@ fn main() -> Result<()> {
                     let verifier = fs::read_to_string(verifier)?;
                     let verifier: Verifier = serde_json::from_str(&verifier)?;
                     let share_itr = secret_reader::get_share_reader(
-                        *share_method,
+                        share_method,
                         verifier,
-                    );
+                    )?;
 
                     let mut shares: Zeroizing<Vec<Share>> =
                         Zeroizing::new(Vec::new());
