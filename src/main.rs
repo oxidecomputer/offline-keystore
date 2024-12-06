@@ -363,7 +363,7 @@ fn do_ceremony<P: AsRef<Path>>(
         );
 
         let secret_writer =
-            secret_writer::get_writer(*secret_method, Some(secret_dev));
+            secret_writer::get_writer(*secret_method, Some(secret_dev))?;
         for (i, share) in shares.as_ref().iter().enumerate() {
             let share_num = i + 1;
             println!(
@@ -772,7 +772,7 @@ fn main() -> Result<()> {
                     let secret_writer = secret_writer::get_writer(
                         *secret_method,
                         Some(secret_dev),
-                    );
+                    )?;
                     for (i, share) in shares.as_ref().iter().enumerate() {
                         let share_num = i + 1;
                         println!(

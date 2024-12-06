@@ -228,11 +228,11 @@ pub struct Cdw {
 impl Cdw {
     // If `device` is `None` then we will only create an iso and return the
     // bytes.
-    pub fn new(device: Option<PathBuf>) -> Result<Cdw> {
-        let device = device.unwrap_or_else(|| {
-            // the error type return is infallible
-            PathBuf::from(DEFAULT_CDRW_DEV)
-        });
+    pub fn new<P: AsRef<Path>>(device: Option<P>) -> Result<Self> {
+        let device = match device {
+            Some(s) => PathBuf::from(s.as_ref()),
+            None => PathBuf::from(DEFAULT_CDRW_DEV),
+        };
         Ok(Self {
             device,
             tmp: tempdir()?,
