@@ -2,10 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{builder::ArgPredicate, ValueEnum};
 use hex::ToHex;
 use std::{
+    env,
     ffi::OsStr,
     fs::{File, OpenOptions},
     io::Write,
@@ -36,6 +37,7 @@ const CR: u8 = 0x0d;
 #[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq)]
 pub enum SecretOutput {
     Cdw,
+    Iso,
     #[default]
     Printer,
 }
@@ -44,6 +46,7 @@ impl From<SecretOutput> for ArgPredicate {
     fn from(val: SecretOutput) -> Self {
         let rep = match val {
             SecretOutput::Cdw => SecretOutput::Cdw.into(),
+            SecretOutput::Iso => SecretOutput::Iso.into(),
             SecretOutput::Printer => SecretOutput::Printer.into(),
         };
         ArgPredicate::Equals(OsStr::new(rep).into())
@@ -54,6 +57,7 @@ impl From<SecretOutput> for &str {
     fn from(val: SecretOutput) -> Self {
         match val {
             SecretOutput::Cdw => "cdw",
+            SecretOutput::Iso => "iso",
             SecretOutput::Printer => "printer",
         }
     }
@@ -65,6 +69,10 @@ pub fn get_writer<P: AsRef<Path>>(
 ) -> Result<Box<dyn SecretWriter>> {
     Ok(match kind {
         SecretOutput::Cdw => Box::new(CdwSecretWriter::new(secret_dev)),
+        SecretOutput::Iso => Box::new(
+            IsoSecretWriter::new(secret_dev)
+                .context("Failed to create IsoSecretWriter")?,
+        ),
         SecretOutput::Printer => Box::new(PrinterSecretWriter::new(secret_dev)),
     })
 }
@@ -290,5 +298,43 @@ impl SecretWriter for CdwSecretWriter {
         cdw.burn()?;
 
         Ok(())
+    }
+}
+
+pub struct IsoSecretWriter {
+    output_dir: PathBuf,
+}
+
+impl IsoSecretWriter {
+    pub fn new<P: AsRef<Path>>(output_dir: Option<P>) -> Result<Self> {
+        let output_dir = match output_dir {
+            None => env::current_dir().context("Failed to get PWD")?,
+            Some(o) => o.as_ref().to_path_buf(),
+        };
+
+        Ok(Self { output_dir })
+    }
+}
+
+impl SecretWriter for IsoSecretWriter {
+    fn password(&self, password: &Zeroizing<String>) -> Result<()> {
+        let cdw = Cdw::new::<PathBuf>(None)?;
+
+        cdw.write_password(password)?;
+        cdw.to_iso(self.output_dir.join("password.iso"))
+    }
+    fn share(
+        &self,
+        index: usize,
+        limit: usize,
+        share: &Zeroizing<Share>,
+    ) -> Result<()> {
+        let cdw = Cdw::new::<PathBuf>(None)?;
+
+        cdw.write_share(share.as_ref())?;
+        cdw.to_iso(
+            self.output_dir
+                .join(format!("share_{}-of-{}.iso", index, limit)),
+        )
     }
 }
