@@ -37,3 +37,4 @@ x509-cert = "0.2.5"
 yubihsm = { git = "https://github.com/oxidecomputer/yubihsm.rs", branch = "session-close", features = ["usb", "untested"] }
 zeroize = "1.8.1"
 zeroize_derive = "1.4.2"
+glob = "0.3.1"

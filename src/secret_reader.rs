@@ -2,14 +2,16 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{builder::ArgPredicate, Args, ValueEnum};
+use glob::Paths;
 use log::debug;
 use std::{
+    env,
     ffi::OsStr,
     io::{self, Read, Write},
     ops::Deref,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use zeroize::Zeroizing;
 
@@ -30,6 +32,7 @@ pub struct SecretInputArg {
 #[derive(ValueEnum, Copy, Clone, Debug, Default, PartialEq)]
 pub enum SecretInput {
     Cdr,
+    Iso,
     #[default]
     Stdio,
 }
@@ -38,6 +41,7 @@ impl From<SecretInput> for ArgPredicate {
     fn from(val: SecretInput) -> Self {
         let rep = match val {
             SecretInput::Cdr => SecretInput::Cdr.into(),
+            SecretInput::Iso => SecretInput::Iso.into(),
             SecretInput::Stdio => SecretInput::Stdio.into(),
         };
         ArgPredicate::Equals(OsStr::new(rep).into())
@@ -48,6 +52,7 @@ impl From<SecretInput> for &str {
     fn from(val: SecretInput) -> &'static str {
         match val {
             SecretInput::Cdr => "cdr",
+            SecretInput::Iso => "iso",
             SecretInput::Stdio => "stdio",
         }
     }
@@ -62,6 +67,10 @@ pub fn get_passwd_reader(
 ) -> Result<Box<dyn PasswordReader>> {
     Ok(match input.auth_method {
         SecretInput::Stdio => Box::new(StdioPasswordReader {}),
+        SecretInput::Iso => {
+            let cdr = Cdr::new(input.auth_dev.as_ref())?;
+            Box::new(IsoPasswordReader::new(cdr))
+        }
         SecretInput::Cdr => {
             let cdr = Cdr::new(input.auth_dev.as_ref())?;
             Box::new(CdrPasswordReader::new(cdr))
@@ -87,6 +96,9 @@ pub fn get_share_reader(
         SecretInput::Cdr => {
             let cdr = Cdr::new(input.auth_dev.as_ref())?;
             Box::new(CdrShareReader::new(cdr, verifier))
+        }
+        SecretInput::Iso => {
+            Box::new(IsoShareReader::new(input.auth_dev.as_ref(), verifier)?)
         }
     })
 }
@@ -287,6 +299,105 @@ impl Iterator for CdrShareReader {
         match verify(&self.verifier, &share) {
             Ok(b) => {
                 if b {
+                    Some(Ok(share))
+                } else {
+                    Some(Err(anyhow::anyhow!("verification failed")))
+                }
+            }
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+struct IsoPasswordReader {
+    cdr: Cdr,
+}
+
+impl IsoPasswordReader {
+    pub fn new(cdr: Cdr) -> Self {
+        Self { cdr }
+    }
+}
+
+impl PasswordReader for IsoPasswordReader {
+    fn read(&mut self, _prompt: &str) -> Result<Zeroizing<String>> {
+        self.cdr.mount()?;
+
+        let password = self.cdr.read("password")?;
+        let password = Zeroizing::new(String::from_utf8(password)?);
+        debug!("read password: {:?}", password.deref());
+        self.cdr.teardown();
+        Ok(password)
+    }
+}
+
+struct IsoShareReader {
+    globs: Paths,
+    verifier: Verifier,
+}
+
+const SHARE_ISO_GLOB: &str = "share_*-of-*.iso";
+
+impl IsoShareReader {
+    // TODO: verifier
+    pub fn new<P: AsRef<Path>>(
+        dir: Option<P>,
+        verifier: Verifier,
+    ) -> Result<Self> {
+        let dir = match dir {
+            None => env::current_dir().context("Failed to get PWD")?,
+            Some(d) => d.as_ref().to_path_buf(),
+        };
+
+        let globs = glob::glob(
+            dir.join(SHARE_ISO_GLOB)
+                .to_str()
+                .context("path can't be represented as an str")?,
+        )
+        .context(format!("Invalid Glob: {}", SHARE_ISO_GLOB))?;
+
+        Ok(Self { globs, verifier })
+    }
+}
+
+impl Iterator for IsoShareReader {
+    type Item = Result<Zeroizing<Share>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let share_iso = match self.globs.next() {
+            None => {
+                debug!("no globs left");
+                return None;
+            }
+            Some(r) => match r {
+                Ok(iso) => iso,
+                Err(e) => return Some(Err(e.into())),
+            },
+        };
+
+        debug!("getting share from ISO: {}", share_iso.display());
+        let mut cdr = match Cdr::new(Some(share_iso)) {
+            Err(e) => return Some(Err(e)),
+            Ok(c) => c,
+        };
+
+        if let Err(e) = cdr.mount() {
+            return Some(Err(e));
+        }
+
+        let share = match cdr.read("share") {
+            Err(e) => return Some(Err(e)),
+            Ok(s) => s,
+        };
+
+        let share = match Share::try_from(&share[..]) {
+            Ok(s) => Zeroizing::new(s),
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        match verify(&self.verifier, &share) {
+            Ok(v) => {
+                if v {
                     Some(Ok(share))
                 } else {
                     Some(Err(anyhow::anyhow!("verification failed")))
