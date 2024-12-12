@@ -26,7 +26,7 @@ use oks::{
     },
     hsm::Hsm,
     secret_reader::{self, PasswordReader, SecretInput, StdioPasswordReader},
-    secret_writer::{self, SecretOutput, DEFAULT_PRINT_DEV},
+    secret_writer::{self, SecretOutputArg},
     util,
 };
 
@@ -108,11 +108,8 @@ enum Command {
         )]
         pkcs11_path: PathBuf,
 
-        #[clap(long, env)]
-        secret_method: SecretOutput,
-
-        #[clap(long, env, required = false, default_value = DEFAULT_PRINT_DEV)]
-        secret_dev: PathBuf,
+        #[clap(flatten)]
+        secret_method: SecretOutputArg,
 
         #[clap(long, env)]
         /// Challenge the caller for a new password, don't generate a
@@ -175,11 +172,8 @@ enum HsmCommand {
         /// random one for them.
         passwd_challenge: bool,
 
-        #[clap(long, env)]
-        secret_method: SecretOutput,
-
-        #[clap(long, env, required = false, default_value = DEFAULT_PRINT_DEV)]
-        secret_dev: PathBuf,
+        #[clap(flatten)]
+        secret_method: SecretOutputArg,
     },
 
     /// Restore a previously split aes256-ccm-wrap key
@@ -319,8 +313,7 @@ fn do_ceremony<P: AsRef<Path>>(
     csr_spec: P,
     key_spec: P,
     pkcs11_path: P,
-    secret_method: &SecretOutput,
-    secret_dev: P,
+    output: &SecretOutputArg,
     challenge: bool,
     args: &Args,
 ) -> Result<()> {
@@ -351,16 +344,14 @@ fn do_ceremony<P: AsRef<Path>>(
         println!(
             "\nWARNING: The wrap / backup key has been created and stored in the\n\
             YubiHSM. It will now be split into {} key shares and each share\n\
-            will be individually written to {}. Before each keyshare is\n\
+            will be individually output. Before each keyshare is\n\
             printed, the operator will be prompted to ensure the appropriate key\n\
             custodian is present in front of the printer.\n\n\
             Press enter to begin the key share recording process ...",
             LIMIT,
-            secret_dev.as_ref().display(),
         );
 
-        let secret_writer =
-            secret_writer::get_writer(*secret_method, Some(secret_dev));
+        let secret_writer = secret_writer::get_writer(output)?;
         for (i, share) in shares.as_ref().iter().enumerate() {
             let share_num = i + 1;
             println!(
@@ -729,7 +720,6 @@ fn main() -> Result<()> {
                 HsmCommand::Initialize {
                     passwd_challenge,
                     ref secret_method,
-                    ref secret_dev,
                 } => {
                     let passwd = Zeroizing::new("password".to_string());
                     let mut hsm = Hsm::new(
@@ -757,18 +747,15 @@ fn main() -> Result<()> {
                     println!(
                         "\nWARNING: The wrap / backup key has been created and stored in the\n\
                         YubiHSM. It will now be split into {} key shares and each share\n\
-                        will be individually written to {}. Before each keyshare is\n\
-                        printed, the operator will be prompted to ensure the appropriate key\n\
+                        will be individually exported. Before each keyshare is printed,\n\
+                        the operator will be prompted to ensure the appropriate key\n\
                         custodian is present in front of the printer.\n\n\
                         Press enter to begin the key share recording process ...",
                         LIMIT,
-                        secret_dev.display(),
                     );
 
-                    let secret_writer = secret_writer::get_writer(
-                        *secret_method,
-                        Some(secret_dev),
-                    );
+                    let secret_writer =
+                        secret_writer::get_writer(secret_method)?;
                     for (i, share) in shares.as_ref().iter().enumerate() {
                         let share_num = i + 1;
                         println!(
@@ -879,14 +866,12 @@ fn main() -> Result<()> {
             ref key_spec,
             ref pkcs11_path,
             ref secret_method,
-            ref secret_dev,
             passwd_challenge,
         } => do_ceremony(
             csr_spec,
             key_spec,
             pkcs11_path,
             secret_method,
-            secret_dev,
             passwd_challenge,
             &args,
         ),
