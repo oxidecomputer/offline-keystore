@@ -2,18 +2,20 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
-use clap::{builder::ArgPredicate, ValueEnum};
+use anyhow::{Context, Result};
+use clap::{builder::ArgPredicate, Args, ValueEnum};
 use hex::ToHex;
 use std::{
+    env,
     ffi::OsStr,
     fs::{File, OpenOptions},
     io::Write,
+    ops::Deref,
     path::{Path, PathBuf},
 };
 use zeroize::Zeroizing;
 
-use crate::{backup::Share, util};
+use crate::{backup::Share, cdrw::IsoWriter, util};
 
 pub const DEFAULT_PRINT_DEV: &str = "/dev/usb/lp0";
 
@@ -35,13 +37,24 @@ const CR: u8 = 0x0d;
 
 #[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq)]
 pub enum SecretOutput {
+    Iso,
     #[default]
     Printer,
+}
+
+#[derive(Args, Clone, Debug, Default, PartialEq)]
+pub struct SecretOutputArg {
+    #[clap(long = "secret-method", env)]
+    method: SecretOutput,
+
+    #[clap(long = "secret-device", env)]
+    dev: Option<PathBuf>,
 }
 
 impl From<SecretOutput> for ArgPredicate {
     fn from(val: SecretOutput) -> Self {
         let rep = match val {
+            SecretOutput::Iso => SecretOutput::Iso.into(),
             SecretOutput::Printer => SecretOutput::Printer.into(),
         };
         ArgPredicate::Equals(OsStr::new(rep).into())
@@ -51,19 +64,21 @@ impl From<SecretOutput> for ArgPredicate {
 impl From<SecretOutput> for &str {
     fn from(val: SecretOutput) -> Self {
         match val {
+            SecretOutput::Iso => "iso",
             SecretOutput::Printer => "printer",
         }
     }
 }
 
-pub fn get_writer<P: AsRef<Path>>(
-    kind: SecretOutput,
-    secret_dev: Option<P>,
-) -> Box<dyn SecretWriter> {
-    let w = match kind {
-        SecretOutput::Printer => PrinterSecretWriter::new(secret_dev),
-    };
-    Box::new(w)
+pub fn get_writer(output: &SecretOutputArg) -> Result<Box<dyn SecretWriter>> {
+    Ok(match output.method {
+        SecretOutput::Iso => {
+            Box::new(IsoSecretWriter::new(output.dev.as_ref())?)
+        }
+        SecretOutput::Printer => {
+            Box::new(PrinterSecretWriter::new(output.dev.as_ref()))
+        }
+    })
 }
 
 pub trait SecretWriter {
@@ -243,4 +258,43 @@ fn print_whitespace_notice(
     }
 
     Ok(())
+}
+
+pub struct IsoSecretWriter {
+    output_dir: PathBuf,
+}
+
+impl IsoSecretWriter {
+    pub fn new<P: AsRef<Path>>(output_dir: Option<P>) -> Result<Self> {
+        let output_dir = match output_dir {
+            None => env::current_dir().context("Failed to get PWD")?,
+            Some(o) => o.as_ref().to_path_buf(),
+        };
+
+        Ok(Self { output_dir })
+    }
+}
+
+impl SecretWriter for IsoSecretWriter {
+    fn password(&self, password: &Zeroizing<String>) -> Result<()> {
+        let writer = IsoWriter::new()?;
+
+        writer.add("password", password.deref().as_bytes())?;
+        writer.to_iso(self.output_dir.join("password.iso"))
+    }
+
+    fn share(
+        &self,
+        index: usize,
+        limit: usize,
+        share: &Zeroizing<Share>,
+    ) -> Result<()> {
+        let writer = IsoWriter::new()?;
+
+        writer.add("share", share.as_ref())?;
+        writer.to_iso(
+            self.output_dir
+                .join(format!("share_{}-of-{}.iso", index, limit)),
+        )
+    }
 }
