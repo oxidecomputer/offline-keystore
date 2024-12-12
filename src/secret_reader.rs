@@ -2,26 +2,44 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::Result;
-use clap::{builder::ArgPredicate, ValueEnum};
+use anyhow::{Context, Result};
+use clap::{builder::ArgPredicate, Args, ValueEnum};
+use glob::Paths;
+use log::debug;
 use std::{
+    env,
     ffi::OsStr,
     io::{self, Read, Write},
     ops::Deref,
+    path::{Path, PathBuf},
 };
 use zeroize::Zeroizing;
 
-use crate::backup::{Share, Verifier};
+use crate::{
+    backup::{Share, Verifier},
+    cdrw::IsoReader,
+};
 
 #[derive(ValueEnum, Copy, Clone, Debug, Default, PartialEq)]
 pub enum SecretInput {
+    Iso,
     #[default]
     Stdio,
+}
+
+#[derive(Args, Clone, Debug, Default, PartialEq)]
+pub struct SecretInputArg {
+    #[clap(long, env)]
+    auth_method: SecretInput,
+
+    #[clap(long, env)]
+    auth_dev: Option<PathBuf>,
 }
 
 impl From<SecretInput> for ArgPredicate {
     fn from(val: SecretInput) -> Self {
         let rep = match val {
+            SecretInput::Iso => SecretInput::Iso.into(),
             SecretInput::Stdio => SecretInput::Stdio.into(),
         };
         ArgPredicate::Equals(OsStr::new(rep).into())
@@ -31,39 +49,76 @@ impl From<SecretInput> for ArgPredicate {
 impl From<SecretInput> for &str {
     fn from(val: SecretInput) -> &'static str {
         match val {
+            SecretInput::Iso => "iso",
             SecretInput::Stdio => "stdio",
         }
     }
 }
 
 pub trait PasswordReader {
-    fn read(&self, prompt: &str) -> Result<Zeroizing<String>>;
+    fn read(&mut self, prompt: &str) -> Result<Zeroizing<String>>;
 }
 
-pub fn get_passwd_reader(kind: SecretInput) -> Box<dyn PasswordReader> {
-    let r = match kind {
-        SecretInput::Stdio => StdioPasswordReader {},
-    };
-    Box::new(r)
+pub fn get_passwd_reader(
+    input: &SecretInputArg,
+) -> Result<Box<dyn PasswordReader>> {
+    Ok(match input.auth_method {
+        SecretInput::Iso => {
+            Box::new(IsoPasswordReader::new(input.auth_dev.as_ref())?)
+        }
+        SecretInput::Stdio => Box::new(StdioPasswordReader {}),
+    })
 }
 
 #[derive(Default)]
 pub struct StdioPasswordReader {}
 
 impl PasswordReader for StdioPasswordReader {
-    fn read(&self, prompt: &str) -> Result<Zeroizing<String>> {
+    fn read(&mut self, prompt: &str) -> Result<Zeroizing<String>> {
         Ok(Zeroizing::new(rpassword::prompt_password(prompt)?))
     }
 }
 
+struct IsoPasswordReader {
+    iso: IsoReader,
+}
+
+impl IsoPasswordReader {
+    pub fn new<P: AsRef<Path>>(iso: Option<P>) -> Result<Self> {
+        let iso = match iso {
+            None => {
+                let pwd = env::current_dir().context("Failed to get PWD")?;
+                pwd.join("password.iso")
+            }
+            Some(i) => i.as_ref().to_path_buf(),
+        };
+
+        Ok(Self {
+            iso: IsoReader::new(iso),
+        })
+    }
+}
+
+impl PasswordReader for IsoPasswordReader {
+    fn read(&mut self, _prompt: &str) -> Result<Zeroizing<String>> {
+        let password =
+            Zeroizing::new(String::from_utf8(self.iso.read("password")?)?);
+        debug!("read password: {:?}", password.deref());
+
+        Ok(password)
+    }
+}
+
 pub fn get_share_reader(
-    kind: SecretInput,
+    input: &SecretInputArg,
     verifier: Verifier,
-) -> Box<dyn Iterator<Item = Result<Zeroizing<Share>>>> {
-    let r = match kind {
-        SecretInput::Stdio => StdioShareReader::new(verifier),
-    };
-    Box::new(r)
+) -> Result<Box<dyn Iterator<Item = Result<Zeroizing<Share>>>>> {
+    Ok(match input.auth_method {
+        SecretInput::Iso => {
+            Box::new(IsoShareReader::new(input.auth_dev.as_ref(), verifier)?)
+        }
+        SecretInput::Stdio => Box::new(StdioShareReader::new(verifier)),
+    })
 }
 
 // ShareReader require a verifier. We separate ShareReaders from from
@@ -173,6 +228,75 @@ impl Iterator for StdioShareReader {
             if verified {
                 break Some(Ok(share));
             }
+        }
+    }
+}
+
+struct IsoShareReader {
+    globs: Paths,
+    verifier: Verifier,
+}
+
+const SHARE_ISO_GLOB: &str = "share_*-of-*.iso";
+
+impl IsoShareReader {
+    pub fn new<P: AsRef<Path>>(
+        dir: Option<P>,
+        verifier: Verifier,
+    ) -> Result<Self> {
+        let dir = match dir {
+            None => env::current_dir().context("Failed to get PWD")?,
+            Some(d) => d.as_ref().to_path_buf(),
+        };
+
+        let globs = glob::glob(
+            dir.join(SHARE_ISO_GLOB)
+                .to_str()
+                .context("path can't be represented as an str")?,
+        )
+        .context(format!("Invalid Glob: {}", SHARE_ISO_GLOB))?;
+
+        Ok(Self { globs, verifier })
+    }
+}
+
+impl Iterator for IsoShareReader {
+    type Item = Result<Zeroizing<Share>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let share_iso = match self.globs.next() {
+            None => {
+                debug!("no globs left");
+                return None;
+            }
+            Some(r) => match r {
+                Ok(iso) => iso,
+                Err(e) => return Some(Err(e.into())),
+            },
+        };
+
+        debug!("getting share from ISO: {}", share_iso.display());
+        let iso = IsoReader::new(share_iso);
+
+        let share = match iso.read("share") {
+            Err(e) => return Some(Err(e)),
+            Ok(s) => s,
+        };
+
+        let share = match Share::try_from(&share[..]) {
+            Ok(s) => Zeroizing::new(s),
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        match verify(&self.verifier, &share) {
+            Ok(v) => {
+                if v {
+                    Some(Ok(share))
+                } else {
+                    Some(Err(anyhow::anyhow!("verification failed")))
+                }
+            }
+            Err(e) => Some(Err(e)),
         }
     }
 }
