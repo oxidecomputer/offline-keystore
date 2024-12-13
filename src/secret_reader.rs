@@ -17,11 +17,12 @@ use zeroize::Zeroizing;
 
 use crate::{
     backup::{Share, Verifier},
-    cdrw::IsoReader,
+    cdrw::{CdReader, IsoReader},
 };
 
 #[derive(ValueEnum, Copy, Clone, Debug, Default, PartialEq)]
 pub enum SecretInput {
+    Cdr,
     Iso,
     #[default]
     Stdio,
@@ -39,6 +40,7 @@ pub struct SecretInputArg {
 impl From<SecretInput> for ArgPredicate {
     fn from(val: SecretInput) -> Self {
         let rep = match val {
+            SecretInput::Cdr => SecretInput::Cdr.into(),
             SecretInput::Iso => SecretInput::Iso.into(),
             SecretInput::Stdio => SecretInput::Stdio.into(),
         };
@@ -49,6 +51,7 @@ impl From<SecretInput> for ArgPredicate {
 impl From<SecretInput> for &str {
     fn from(val: SecretInput) -> &'static str {
         match val {
+            SecretInput::Cdr => "cdr",
             SecretInput::Iso => "iso",
             SecretInput::Stdio => "stdio",
         }
@@ -63,6 +66,10 @@ pub fn get_passwd_reader(
     input: &SecretInputArg,
 ) -> Result<Box<dyn PasswordReader>> {
     Ok(match input.auth_method {
+        SecretInput::Cdr => {
+            let cdr = CdReader::new(input.auth_dev.as_ref());
+            Box::new(CdrPasswordReader::new(cdr))
+        }
         SecretInput::Iso => {
             Box::new(IsoPasswordReader::new(input.auth_dev.as_ref())?)
         }
@@ -109,11 +116,38 @@ impl PasswordReader for IsoPasswordReader {
     }
 }
 
+pub struct CdrPasswordReader {
+    cdr: CdReader,
+}
+
+impl CdrPasswordReader {
+    pub fn new(cdr: CdReader) -> Self {
+        Self { cdr }
+    }
+}
+
+impl PasswordReader for CdrPasswordReader {
+    fn read(&mut self, _prompt: &str) -> Result<Zeroizing<String>> {
+        let password = self.cdr.read("password")?;
+
+        // Passwords are utf8 and `String::from_utf8` explicitly does *not*
+        // copy the Vec<u8>.
+        let password = Zeroizing::new(String::from_utf8(password)?);
+        debug!("read password: {:?}", password.deref());
+
+        Ok(password)
+    }
+}
+
 pub fn get_share_reader(
     input: &SecretInputArg,
     verifier: Verifier,
 ) -> Result<Box<dyn Iterator<Item = Result<Zeroizing<Share>>>>> {
     Ok(match input.auth_method {
+        SecretInput::Cdr => {
+            let cdr = CdReader::new(input.auth_dev.as_ref());
+            Box::new(CdrShareReader::new(cdr, verifier))
+        }
         SecretInput::Iso => {
             Box::new(IsoShareReader::new(input.auth_dev.as_ref(), verifier)?)
         }
@@ -291,6 +325,64 @@ impl Iterator for IsoShareReader {
         match verify(&self.verifier, &share) {
             Ok(v) => {
                 if v {
+                    Some(Ok(share))
+                } else {
+                    Some(Err(anyhow::anyhow!("verification failed")))
+                }
+            }
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+pub struct CdrShareReader {
+    cdr: CdReader,
+    verifier: Verifier,
+}
+
+impl CdrShareReader {
+    pub fn new(cdr: CdReader, verifier: Verifier) -> Self {
+        Self { cdr, verifier }
+    }
+}
+
+impl Iterator for CdrShareReader {
+    type Item = Result<Zeroizing<Share>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.cdr.eject() {
+            Ok(()) => (),
+            Err(e) => return Some(Err(e)),
+        }
+
+        print!(
+            "Place keyshare CD in the drive, close the drive, then press \n\
+               any key to continue: "
+        );
+        match io::stdout().flush() {
+            Ok(()) => (),
+            Err(e) => return Some(Err(e.into())),
+        }
+        // wait for user input
+        match io::stdin().read_exact(&mut [0u8]) {
+            Ok(_) => (),
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        let share = match self.cdr.read("share") {
+            Ok(b) => b,
+            Err(e) => return Some(Err(e)),
+        };
+        println!("\nOK");
+
+        let share = match Share::try_from(share.deref()) {
+            Ok(s) => Zeroizing::new(s),
+            Err(e) => return Some(Err(e.into())),
+        };
+
+        match verify(&self.verifier, &share) {
+            Ok(b) => {
+                if b {
                     Some(Ok(share))
                 } else {
                     Some(Err(anyhow::anyhow!("verification failed")))
