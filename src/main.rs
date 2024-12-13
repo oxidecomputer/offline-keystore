@@ -26,7 +26,7 @@ use oks::{
     },
     hsm::Hsm,
     secret_reader::{
-        self, PasswordReader, SecretInputArg, StdioPasswordReader,
+        self, AuthInputArg, PasswordReader, ShareInputArg, StdioPasswordReader,
     },
     secret_writer::{self, SecretOutputArg},
     util,
@@ -75,7 +75,7 @@ struct Args {
 enum Command {
     Ca {
         #[clap(flatten)]
-        auth_method: SecretInputArg,
+        auth_method: AuthInputArg,
 
         #[command(subcommand)]
         command: CaCommand,
@@ -159,7 +159,7 @@ enum HsmCommand {
     /// Generate keys in YubiHSM from specification.
     Generate {
         #[clap(flatten)]
-        auth_method: SecretInputArg,
+        auth_method: AuthInputArg,
 
         #[clap(long, env, default_value = "input")]
         key_spec: PathBuf,
@@ -185,7 +185,7 @@ enum HsmCommand {
         backups: PathBuf,
 
         #[clap(flatten)]
-        share_method: SecretInputArg,
+        share_method: ShareInputArg,
 
         #[clap(long, env, default_value = "input/verifier.json")]
         verifier: PathBuf,
@@ -194,7 +194,7 @@ enum HsmCommand {
     /// Get serial number from YubiHSM and dump to console.
     SerialNumber {
         #[clap(flatten)]
-        auth_method: SecretInputArg,
+        auth_method: AuthInputArg,
     },
 }
 
@@ -239,7 +239,7 @@ fn get_auth_id(auth_id: Option<Id>, command: &HsmCommand) -> Id {
 /// the user with a password prompt.
 fn get_passwd(
     auth_id: Option<Id>,
-    auth_method: &SecretInputArg,
+    auth_method: &AuthInputArg,
     command: &HsmCommand,
 ) -> Result<Zeroizing<String>> {
     let passwd = match env::var(ENV_PASSWORD).ok() {
