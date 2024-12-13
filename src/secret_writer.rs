@@ -15,7 +15,11 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-use crate::{backup::Share, cdrw::IsoWriter, util};
+use crate::{
+    backup::Share,
+    cdrw::{CdWriter, IsoWriter},
+    util,
+};
 
 pub const DEFAULT_PRINT_DEV: &str = "/dev/usb/lp0";
 
@@ -37,6 +41,7 @@ const CR: u8 = 0x0d;
 
 #[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq)]
 pub enum SecretOutput {
+    Cdw,
     Iso,
     #[default]
     Printer,
@@ -54,6 +59,7 @@ pub struct SecretOutputArg {
 impl From<SecretOutput> for ArgPredicate {
     fn from(val: SecretOutput) -> Self {
         let rep = match val {
+            SecretOutput::Cdw => SecretOutput::Cdw.into(),
             SecretOutput::Iso => SecretOutput::Iso.into(),
             SecretOutput::Printer => SecretOutput::Printer.into(),
         };
@@ -64,6 +70,7 @@ impl From<SecretOutput> for ArgPredicate {
 impl From<SecretOutput> for &str {
     fn from(val: SecretOutput) -> Self {
         match val {
+            SecretOutput::Cdw => "cdw",
             SecretOutput::Iso => "iso",
             SecretOutput::Printer => "printer",
         }
@@ -72,6 +79,9 @@ impl From<SecretOutput> for &str {
 
 pub fn get_writer(output: &SecretOutputArg) -> Result<Box<dyn SecretWriter>> {
     Ok(match output.method {
+        SecretOutput::Cdw => {
+            Box::new(CdwSecretWriter::new(output.dev.as_ref()))
+        }
         SecretOutput::Iso => {
             Box::new(IsoSecretWriter::new(output.dev.as_ref())?)
         }
@@ -296,5 +306,50 @@ impl SecretWriter for IsoSecretWriter {
             self.output_dir
                 .join(format!("share_{}-of-{}.iso", index, limit)),
         )
+    }
+}
+
+pub struct CdwSecretWriter {
+    device: Option<PathBuf>,
+}
+
+impl CdwSecretWriter {
+    pub fn new<P: AsRef<Path>>(device: Option<P>) -> Self {
+        let device = device.map(|p| p.as_ref().to_path_buf());
+
+        Self { device }
+    }
+}
+
+impl SecretWriter for CdwSecretWriter {
+    fn password(&self, password: &Zeroizing<String>) -> Result<()> {
+        println!(
+            "\nWARNING: The HSM authentication password has been created and stored in\n\
+            the YubiHSM. It will now be written to CDR media.\n\n\
+            Press enter to print the HSM password ...",
+        );
+
+        util::wait_for_line()?;
+
+        let cdw = CdWriter::new(self.device.as_ref())?;
+
+        cdw.write_password(password)?;
+        cdw.burn()?;
+
+        println!("Remove CD from drive then press enter.");
+        util::wait_for_line()
+    }
+    fn share(
+        &self,
+        _index: usize,
+        _limit: usize,
+        share: &Zeroizing<Share>,
+    ) -> Result<()> {
+        let cdw = CdWriter::new(self.device.as_ref())?;
+
+        cdw.write_share(share)?;
+        cdw.burn()?;
+
+        Ok(())
     }
 }

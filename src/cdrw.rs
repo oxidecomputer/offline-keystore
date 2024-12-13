@@ -6,10 +6,16 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, warn};
 use std::{
     fs,
+    ops::Deref,
     path::{Path, PathBuf},
     process::Command,
 };
 use tempfile::{tempdir, TempDir};
+use zeroize::Zeroizing;
+
+use crate::backup::Share;
+
+pub const DEFAULT_CDRW_DEV: &str = "/dev/cdrom";
 
 pub struct IsoWriter {
     tmpdir: TempDir,
@@ -88,6 +94,97 @@ impl IsoReader {
         loopback_teardown(&loop_dev)?;
 
         Ok(data)
+    }
+}
+
+pub struct CdWriter {
+    iso_writer: IsoWriter,
+    device: PathBuf,
+}
+
+impl CdWriter {
+    pub fn new<P: AsRef<Path>>(device: Option<P>) -> Result<Self> {
+        let device = match device {
+            Some(s) => PathBuf::from(s.as_ref()),
+            None => PathBuf::from(DEFAULT_CDRW_DEV),
+        };
+
+        Ok(Self {
+            device,
+            iso_writer: IsoWriter::new()?,
+        })
+    }
+
+    pub fn write_password(&self, data: &Zeroizing<String>) -> Result<()> {
+        debug!(
+            "Writing password \"{}\"",
+            <Zeroizing<String> as AsRef<str>>::as_ref(data),
+        );
+        self.iso_writer.add("password", data.deref().as_bytes())
+    }
+
+    pub fn write_share(&self, data: &Zeroizing<Share>) -> Result<()> {
+        debug!("Writing share: {:?}", data.deref());
+        self.iso_writer.add("share", data.deref().as_ref())
+    }
+
+    /// Burn data to CD & eject disk when done.
+    pub fn burn(self) -> Result<()> {
+        use tempfile::NamedTempFile;
+
+        let iso = NamedTempFile::new()?;
+        self.iso_writer.to_iso(&iso)?;
+
+        let mut cmd = Command::new("cdrecord");
+        let output = cmd
+            .arg("-eject")
+            .arg("-data")
+            .arg(iso.path())
+            .arg(format!("dev={}", self.device.display()))
+            .arg("gracetime=0")
+            .arg("timeout=1000")
+            .output()
+            .with_context(|| {
+                format!(
+                    "failed to execute cdrecord to burn ISO \"{}\" to \"{}\"",
+                    iso.path().display(),
+                    self.device.display()
+                )
+            })?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            warn!("command failed with status: {}", output.status);
+            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+            Err(anyhow!(
+                "Failed to burn ISO {} to device {}",
+                iso.path().display(),
+                self.device.display()
+            ))
+        }
+    }
+
+    /// Eject / open CD device.
+    pub fn eject(&self) -> Result<()> {
+        let mut cmd = Command::new("eject");
+        let output = cmd.arg(&self.device).output().with_context(|| {
+            format!(
+                "Failed to execute eject on device \"{}\"",
+                self.device.display()
+            )
+        })?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            warn!("command failed with status: {}", output.status);
+            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+            Err(anyhow!(
+                "Failed to eject CD device {}",
+                self.device.display()
+            ))
+        }
     }
 }
 
