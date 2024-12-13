@@ -28,15 +28,6 @@ pub enum SecretInput {
     Stdio,
 }
 
-#[derive(Args, Clone, Debug, Default, PartialEq)]
-pub struct SecretInputArg {
-    #[clap(long, env)]
-    auth_method: SecretInput,
-
-    #[clap(long, env)]
-    auth_dev: Option<PathBuf>,
-}
-
 impl From<SecretInput> for ArgPredicate {
     fn from(val: SecretInput) -> Self {
         let rep = match val {
@@ -58,20 +49,29 @@ impl From<SecretInput> for &str {
     }
 }
 
+#[derive(Args, Clone, Debug, Default, PartialEq)]
+pub struct AuthInputArg {
+    #[clap(long = "auth-method", env)]
+    method: SecretInput,
+
+    #[clap(long = "auth-device", env)]
+    device: Option<PathBuf>,
+}
+
 pub trait PasswordReader {
     fn read(&mut self, prompt: &str) -> Result<Zeroizing<String>>;
 }
 
 pub fn get_passwd_reader(
-    input: &SecretInputArg,
+    input: &AuthInputArg,
 ) -> Result<Box<dyn PasswordReader>> {
-    Ok(match input.auth_method {
+    Ok(match input.method {
         SecretInput::Cdr => {
-            let cdr = CdReader::new(input.auth_dev.as_ref());
+            let cdr = CdReader::new(input.device.as_ref());
             Box::new(CdrPasswordReader::new(cdr))
         }
         SecretInput::Iso => {
-            Box::new(IsoPasswordReader::new(input.auth_dev.as_ref())?)
+            Box::new(IsoPasswordReader::new(input.device.as_ref())?)
         }
         SecretInput::Stdio => Box::new(StdioPasswordReader {}),
     })
@@ -139,17 +139,26 @@ impl PasswordReader for CdrPasswordReader {
     }
 }
 
+#[derive(Args, Clone, Debug, Default, PartialEq)]
+pub struct ShareInputArg {
+    #[clap(long = "share-method", env)]
+    method: SecretInput,
+
+    #[clap(long = "share-device", env)]
+    device: Option<PathBuf>,
+}
+
 pub fn get_share_reader(
-    input: &SecretInputArg,
+    input: &ShareInputArg,
     verifier: Verifier,
 ) -> Result<Box<dyn Iterator<Item = Result<Zeroizing<Share>>>>> {
-    Ok(match input.auth_method {
+    Ok(match input.method {
         SecretInput::Cdr => {
-            let cdr = CdReader::new(input.auth_dev.as_ref());
+            let cdr = CdReader::new(input.device.as_ref());
             Box::new(CdrShareReader::new(cdr, verifier))
         }
         SecretInput::Iso => {
-            Box::new(IsoShareReader::new(input.auth_dev.as_ref(), verifier)?)
+            Box::new(IsoShareReader::new(input.device.as_ref(), verifier)?)
         }
         SecretInput::Stdio => Box::new(StdioShareReader::new(verifier)),
     })
