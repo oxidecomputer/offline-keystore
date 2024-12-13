@@ -97,6 +97,53 @@ impl IsoReader {
     }
 }
 
+pub struct CdReader {
+    device: PathBuf,
+}
+
+impl CdReader {
+    pub fn new<P: AsRef<Path>>(device: Option<P>) -> Self {
+        let device = match device {
+            Some(s) => PathBuf::from(s.as_ref()),
+            None => PathBuf::from(DEFAULT_CDRW_DEV),
+        };
+        Self { device }
+    }
+
+    pub fn eject(&self) -> Result<()> {
+        let mut cmd = Command::new("eject");
+        let output = cmd.arg(&self.device).output().with_context(|| {
+            format!("failed to run the \"eject\" command: \"{:?}\"", cmd)
+        })?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            warn!("command failed with status: {}", output.status);
+            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+            Err(anyhow!(
+                "Failed to eject optical device \"{}\"",
+                self.device.display()
+            ))
+        }
+    }
+
+    pub fn read(&self, name: &str) -> Result<Vec<u8>> {
+        let tmpdir = tempdir()?;
+        mount(&self.device, &tmpdir)?;
+
+        let path = tmpdir.as_ref().join(name);
+        debug!("reading data from {}", path.display());
+
+        let res = fs::read(&path).with_context(|| {
+            format!("failed to read file: {} from Cdr", path.display())
+        });
+        unmount(&tmpdir)?;
+
+        res
+    }
+}
+
 pub struct CdWriter {
     iso_writer: IsoWriter,
     device: PathBuf,
