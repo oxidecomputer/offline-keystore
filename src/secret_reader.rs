@@ -49,13 +49,16 @@ impl From<SecretInput> for &str {
     }
 }
 
+// thread 'main' panicked at /home/flihp/.cargo/registry/src/index.crates.io-6f17d22bba15001f/clap_builder-4.5.18/src/builder/debug_asserts.rs:86:13:
+// Command change-auth: Argument names must be unique, but 'method' is in use by more than one argument or group
+// note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 #[derive(Args, Clone, Debug, Default, PartialEq)]
 pub struct AuthInputArg {
-    #[clap(long = "auth-method", env)]
-    method: SecretInput,
+    #[clap(long, env)]
+    auth_method: SecretInput,
 
-    #[clap(long = "auth-device", env)]
-    device: Option<PathBuf>,
+    #[clap(long, env)]
+    auth_device: Option<PathBuf>,
 }
 
 pub trait PasswordReader {
@@ -65,13 +68,13 @@ pub trait PasswordReader {
 pub fn get_passwd_reader(
     input: &AuthInputArg,
 ) -> Result<Box<dyn PasswordReader>> {
-    Ok(match input.method {
+    Ok(match input.auth_method {
         SecretInput::Cdr => {
-            let cdr = CdReader::new(input.device.as_ref());
+            let cdr = CdReader::new(input.auth_device.as_ref());
             Box::new(CdrPasswordReader::new(cdr))
         }
         SecretInput::Iso => {
-            Box::new(IsoPasswordReader::new(input.device.as_ref())?)
+            Box::new(IsoPasswordReader::new(input.auth_device.as_ref())?)
         }
         SecretInput::Stdio => Box::new(StdioPasswordReader {}),
     })

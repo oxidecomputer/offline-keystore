@@ -190,6 +190,35 @@ impl Hsm {
         Ok(())
     }
 
+    // Create an auth value w/ id 1 for the well known password, then delete
+    // the auth value w/ id 2.
+    pub fn restore_default_auth(&self) -> Result<()> {
+        info!("Restoring default auth credential.");
+        // create an auth key like the default w/ a known seed
+        let auth_key = Key::derive_from_password("password".as_bytes());
+
+        self.client
+            .put_authentication_key(
+                DEFAULT_AUTHENTICATION_KEY_ID,
+                AUTH_LABEL.into(),
+                AUTH_DOMAINS,
+                AUTH_CAPS,
+                AUTH_DELEGATED,
+                authentication::Algorithm::default(), // can't be used in const
+                auth_key,
+            )
+            .context("Put temporary auth key w/ known value")?;
+
+        info!("Deleting auth credential w/ key id: {}", AUTH_ID);
+        self.client
+            .delete_object(AUTH_ID, Type::AuthenticationKey)
+            .with_context(|| {
+                format!("Delete authentication key object w/ id {}", AUTH_ID)
+            })?;
+
+        Ok(())
+    }
+
     pub fn generate(&self, key_spec: &Path) -> Result<()> {
         debug!("canonical KeySpec path: {}", key_spec.display());
 
