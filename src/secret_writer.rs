@@ -49,11 +49,11 @@ pub enum SecretOutput {
 
 #[derive(Args, Clone, Debug, Default, PartialEq)]
 pub struct SecretOutputArg {
-    #[clap(long = "secret-method", env)]
-    method: SecretOutput,
+    #[clap(long, env)]
+    secret_method: SecretOutput,
 
-    #[clap(long = "secret-device", env)]
-    dev: Option<PathBuf>,
+    #[clap(long, env)]
+    secret_device: Option<PathBuf>,
 }
 
 impl From<SecretOutput> for ArgPredicate {
@@ -78,15 +78,15 @@ impl From<SecretOutput> for &str {
 }
 
 pub fn get_writer(output: &SecretOutputArg) -> Result<Box<dyn SecretWriter>> {
-    Ok(match output.method {
+    Ok(match output.secret_method {
         SecretOutput::Cdw => {
-            Box::new(CdwSecretWriter::new(output.dev.as_ref()))
+            Box::new(CdwSecretWriter::new(output.secret_device.as_ref()))
         }
         SecretOutput::Iso => {
-            Box::new(IsoSecretWriter::new(output.dev.as_ref())?)
+            Box::new(IsoSecretWriter::new(output.secret_device.as_ref())?)
         }
         SecretOutput::Printer => {
-            Box::new(PrinterSecretWriter::new(output.dev.as_ref()))
+            Box::new(PrinterSecretWriter::new(output.secret_device.as_ref()))
         }
     })
 }

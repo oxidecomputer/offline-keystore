@@ -156,6 +156,20 @@ enum CaCommand {
 /// - OKS_NEW_PASSWORD - if set this command will use the value from this
 ///   variable as the password for a newly created admin auth credential
 enum HsmCommand {
+    /// Change the authentication value.
+    ChangeAuth {
+        #[clap(flatten)]
+        auth_method: AuthInputArg,
+
+        /// Challenge the caller for a new password, don't generate a
+        /// random one for them.
+        #[clap(long, env)]
+        passwd_challenge: bool,
+
+        #[clap(flatten)]
+        secret_method: SecretOutputArg,
+    },
+
     /// Generate keys in YubiHSM from specification.
     Generate {
         #[clap(flatten)]
@@ -793,6 +807,54 @@ fn main() -> Result<()> {
 
                     hsm.import_backup_key(wrap)?;
                     hsm.dump_attest_cert::<String>(None)?;
+                    hsm.replace_default_auth(&passwd_new)
+                }
+                HsmCommand::ChangeAuth {
+                    ref auth_method,
+                    passwd_challenge,
+                    ref secret_method,
+                } => {
+                    // authenticate using the existing credentials (auth-id 2)
+                    let passwd = get_passwd(auth_id, auth_method, &command)?;
+                    let auth_id = get_auth_id(auth_id, &command);
+                    let hsm = Hsm::new(
+                        auth_id,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+
+                    // create a temp auth value in a known slot (auth-id 1)
+                    // delete old auth value from known slot (auth-id 2)
+                    hsm.restore_default_auth()?;
+
+                    // auth to HSM w/ tmp auth value
+                    let mut hsm = Hsm::new(
+                        1,
+                        "password",
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+
+                    // generate a new secret
+                    let passwd_new = if passwd_challenge {
+                        get_new_passwd(None)?
+                    } else {
+                        get_new_passwd(Some(&mut hsm))?
+                    };
+
+                    // write said secret out with the selected method
+                    let secret_writer =
+                        secret_writer::get_writer(secret_method)?;
+
+                    secret_writer.password(&passwd_new)?;
+
+                    // store the new secret in a known slot (auth-id 2)
+                    // delete tmp auth value (auth-id 1)
                     hsm.replace_default_auth(&passwd_new)
                 }
                 HsmCommand::Generate {
