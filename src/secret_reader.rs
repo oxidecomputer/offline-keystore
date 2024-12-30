@@ -70,7 +70,7 @@ pub fn get_passwd_reader(
 ) -> Result<Box<dyn PasswordReader>> {
     Ok(match input.auth_method {
         SecretInput::Cdr => {
-            let cdr = CdReader::new(input.auth_device.as_ref());
+            let cdr = CdReader::new(input.auth_device.as_ref())?;
             Box::new(CdrPasswordReader::new(cdr))
         }
         SecretInput::Iso => {
@@ -157,7 +157,7 @@ pub fn get_share_reader(
 ) -> Result<Box<dyn Iterator<Item = Result<Zeroizing<Share>>>>> {
     Ok(match input.method {
         SecretInput::Cdr => {
-            let cdr = CdReader::new(input.device.as_ref());
+            let cdr = CdReader::new(input.device.as_ref())?;
             Box::new(CdrShareReader::new(cdr, verifier))
         }
         SecretInput::Iso => {

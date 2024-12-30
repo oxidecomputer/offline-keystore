@@ -7,6 +7,7 @@ use log::{debug, warn};
 use std::{
     fs,
     ops::Deref,
+    os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -15,7 +16,7 @@ use zeroize::Zeroizing;
 
 use crate::backup::Share;
 
-pub const DEFAULT_CDRW_DEV: &str = "/dev/cdrom";
+pub static CD_DEVS: &[&str] = &["/dev/cdrom", "/dev/sr0"];
 
 pub struct IsoWriter {
     tmpdir: TempDir,
@@ -97,17 +98,31 @@ impl IsoReader {
     }
 }
 
+fn find_cd_dev() -> Option<PathBuf> {
+    let mut devices = CD_DEVS.iter().filter(|d| match fs::metadata(d) {
+        Err(_) => false,
+        Ok(m) => m.file_type().is_block_device(),
+    });
+
+    devices.next().map(PathBuf::from)
+}
+
 pub struct CdReader {
     device: PathBuf,
 }
 
 impl CdReader {
-    pub fn new<P: AsRef<Path>>(device: Option<P>) -> Self {
+    pub fn new<P: AsRef<Path>>(device: Option<P>) -> Result<Self> {
         let device = match device {
             Some(s) => PathBuf::from(s.as_ref()),
-            None => PathBuf::from(DEFAULT_CDRW_DEV),
+            None => match find_cd_dev() {
+                None => {
+                    return Err(anyhow::anyhow!("unable to find CD device"))
+                }
+                Some(p) => p,
+            },
         };
-        Self { device }
+        Ok(Self { device })
     }
 
     pub fn eject(&self) -> Result<()> {
@@ -153,7 +168,12 @@ impl CdWriter {
     pub fn new<P: AsRef<Path>>(device: Option<P>) -> Result<Self> {
         let device = match device {
             Some(s) => PathBuf::from(s.as_ref()),
-            None => PathBuf::from(DEFAULT_CDRW_DEV),
+            None => match find_cd_dev() {
+                None => {
+                    return Err(anyhow::anyhow!("unable to find CD device"))
+                }
+                Some(p) => p,
+            },
         };
 
         Ok(Self {
