@@ -323,22 +323,31 @@ impl CdwSecretWriter {
 
 impl SecretWriter for CdwSecretWriter {
     fn password(&self, password: &Zeroizing<String>) -> Result<()> {
+        let cdw = CdWriter::new(self.device.as_ref())?;
+        cdw.eject()?;
+
         println!(
-            "\nWARNING: The HSM authentication password has been created and stored in\n\
-            the YubiHSM. It will now be written to CDR media.\n\n\
-            Press enter to print the HSM password ...",
+            "\nWARNING: The HSM authentication password has been created.\n\
+            It will now be written to CDR media.\n\n\
+            Put a blank disk in the drive, then press enter to burn the disk \
+            ...",
         );
 
         util::wait_for_line()?;
 
-        let cdw = CdWriter::new(self.device.as_ref())?;
-
+        cdw.eject()?;
         cdw.write_password(password)?;
         cdw.burn()?;
 
-        println!("Remove CD from drive then press enter.");
-        util::wait_for_line()
+        println!(
+            "The password has been burned and the output CD is available in\n\
+            the drive. Follow the instructions from the script."
+        );
+
+        util::wait_for_line()?;
+        CdWriter::new(self.device.as_ref())?.eject()
     }
+
     fn share(
         &self,
         _index: usize,
