@@ -18,6 +18,7 @@ use zeroize::Zeroizing;
 use crate::{
     backup::{Share, Verifier},
     cdrw::{CdReader, IsoReader},
+    util,
 };
 
 #[derive(ValueEnum, Copy, Clone, Debug, Default, PartialEq)]
@@ -131,10 +132,24 @@ impl CdrPasswordReader {
 
 impl PasswordReader for CdrPasswordReader {
     fn read(&mut self, _prompt: &str) -> Result<Zeroizing<String>> {
-        let password = self.cdr.read("password")?;
+        match self.cdr.eject() {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+
+        print!(
+            "Place authentication CD in the drive, close the drive, then press \n\
+               any key to continue: "
+        );
+        match io::stdout().flush() {
+            Ok(()) => (),
+            Err(e) => return Err(e.into()),
+        }
+        util::wait_for_line()?;
 
         // Passwords are utf8 and `String::from_utf8` explicitly does *not*
         // copy the Vec<u8>.
+        let password = self.cdr.read("password")?;
         let password = Zeroizing::new(String::from_utf8(password)?);
         debug!("read password: {:?}", password.deref());
 
