@@ -36,8 +36,13 @@ const PASSWD_PROMPT: &str = "Enter YubiHSM Password: ";
 const PASSWD_NEW: &str = "Enter new password: ";
 const PASSWD_NEW_2: &str = "Enter password again to confirm: ";
 
+const INPUT_PATH: &str = "/usr/share/oks";
+const VERIFIER_PATH: &str = "/usr/share/oks/verifier.json";
+
+const OUTPUT_PATH: &str = "/var/lib/oks";
+const STATE_PATH: &str = "/var/lib/oks/ca-state";
+
 const GEN_PASSWD_LENGTH: usize = 16;
-const VERIFIER_FILE: &str = "verifier.json";
 
 // when we write out signed certs to the file system this suffix is appended
 const CERT_SUFFIX: &str = "cert.pem";
@@ -55,11 +60,11 @@ struct Args {
     verbose: bool,
 
     /// Directory where we put certs and attestations
-    #[clap(long, env, default_value = "output")]
+    #[clap(long, env, default_value = OUTPUT_PATH)]
     output: PathBuf,
 
     /// Directory where we put KeySpec, CA state and backups
-    #[clap(long, env, default_value = "ca-state")]
+    #[clap(long, env, default_value = STATE_PATH)]
     state: PathBuf,
 
     /// 'usb' or 'http'
@@ -96,10 +101,10 @@ enum Command {
     /// is equivalent to executing `hsm initialize`, `hsm generate`,
     /// `ca initialize`, and `ca sign`.
     Ceremony {
-        #[clap(long, env, default_value = "input")]
+        #[clap(long, env, default_value = INPUT_PATH)]
         csr_spec: PathBuf,
 
-        #[clap(long, env, default_value = "input")]
+        #[clap(long, env, default_value = INPUT_PATH)]
         key_spec: PathBuf,
 
         /// Path to the YubiHSM PKCS#11 module
@@ -126,7 +131,7 @@ enum CaCommand {
     /// Initialize an OpenSSL CA for the given key.
     Initialize {
         /// Spec file describing the CA signing key
-        #[clap(long, env, default_value = "input")]
+        #[clap(long, env, default_value = INPUT_PATH)]
         key_spec: PathBuf,
 
         /// Path to the YubiHSM PKCS#11 module
@@ -141,7 +146,7 @@ enum CaCommand {
     /// Use the CA associated with the provided key spec to sign the
     /// provided CSR.
     Sign {
-        #[clap(long, env, default_value = "input")]
+        #[clap(long, env, default_value = INPUT_PATH)]
         csr_spec: PathBuf,
     },
 }
@@ -175,7 +180,7 @@ enum HsmCommand {
         #[clap(flatten)]
         auth_method: AuthInputArg,
 
-        #[clap(long, env, default_value = "input")]
+        #[clap(long, env, default_value = INPUT_PATH)]
         key_spec: PathBuf,
     },
 
@@ -195,13 +200,13 @@ enum HsmCommand {
     /// Restore a previously split aes256-ccm-wrap key
     // assume default auth for passwd, chose share src: stdio / cdr
     Restore {
-        #[clap(long, env, default_value = "input")]
+        #[clap(long, env, default_value = INPUT_PATH)]
         backups: PathBuf,
 
         #[clap(flatten)]
         share_method: ShareInputArg,
 
-        #[clap(long, env, default_value = "input/verifier.json")]
+        #[clap(long, env, default_value = "/usr/share/oks/verifier.json")]
         verifier: PathBuf,
     },
 
@@ -350,7 +355,7 @@ fn do_ceremony<P: AsRef<Path>>(
         let (shares, verifier) = wrap.split(&mut hsm)?;
         let verifier = serde_json::to_string(&verifier)?;
         debug!("JSON: {}", verifier);
-        let verifier_path = args.output.join(VERIFIER_FILE);
+        let verifier_path = args.output.join(VERIFIER_PATH);
         debug!(
             "Serializing verifier as json to: {}",
             verifier_path.display()
@@ -754,7 +759,7 @@ fn main() -> Result<()> {
                     let (shares, verifier) = wrap.split(&mut hsm)?;
                     let verifier = serde_json::to_string(&verifier)?;
                     debug!("JSON: {}", verifier);
-                    let verifier_path = args.output.join(VERIFIER_FILE);
+                    let verifier_path = args.output.join(VERIFIER_PATH);
                     debug!(
                         "Serializing verifier as json to: {}",
                         verifier_path.display()
