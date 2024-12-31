@@ -10,6 +10,8 @@ use std::{
     os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
     process::Command,
+    thread,
+    time::Duration,
 };
 use tempfile::{tempdir, TempDir};
 use zeroize::Zeroizing;
@@ -17,6 +19,8 @@ use zeroize::Zeroizing;
 use crate::backup::Share;
 
 pub static CD_DEVS: &[&str] = &["/dev/cdrom", "/dev/sr0"];
+static RETRY_COUNT: u32 = 5;
+static RETRY_SLEEP: u64 = 2;
 
 pub struct IsoWriter {
     tmpdir: TempDir,
@@ -85,7 +89,7 @@ impl IsoReader {
         let loop_dev = loopback_setup(&self.iso_file)?;
 
         let tmpdir = tempdir()?;
-        mount(&loop_dev, &tmpdir)?;
+        mount(&loop_dev, &tmpdir, RETRY_COUNT)?;
 
         let src = tmpdir.path().join(&path);
         let data = fs::read(src)?;
@@ -145,7 +149,7 @@ impl CdReader {
 
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         let tmpdir = tempdir()?;
-        mount(&self.device, &tmpdir)?;
+        mount(&self.device, &tmpdir, RETRY_COUNT)?;
 
         let path = tmpdir.as_ref().join(name);
         debug!("reading data from {}", path.display());
@@ -321,30 +325,43 @@ fn loopback_teardown<P: AsRef<Path>>(loop_dev: P) -> Result<()> {
 fn mount<P: AsRef<Path>, Q: AsRef<Path>>(
     device: P,
     mount_point: Q,
+    retries: u32,
 ) -> Result<()> {
     let mut cmd = Command::new("mount");
-    let output = cmd
-        .arg(device.as_ref())
-        .arg(mount_point.as_ref())
-        .output()
-        .with_context(|| {
+    let cmd = cmd.arg(device.as_ref()).arg(mount_point.as_ref());
+
+    let mut count = 0;
+    let mut sleep = RETRY_SLEEP;
+    loop {
+        // we do not retry if we can't get output from / execute the command
+        let output = cmd.output().with_context(|| {
             format!(
-                "failed to mount \"{}\" at \"{}\"",
+                "failed to execute mount command \"{}\" at \"{}\"",
                 device.as_ref().display(),
                 mount_point.as_ref().display()
             )
         })?;
 
-    if output.status.success() {
-        Ok(())
-    } else {
-        warn!("command failed with status: {}", output.status);
-        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-        Err(anyhow!(
-            "Failed to mount device {} at {}",
-            device.as_ref().display(),
-            mount_point.as_ref().display()
-        ))
+        if output.status.success() {
+            break Ok(());
+        } else {
+            warn!("command failed with status: {}", output.status);
+            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+
+            count += 1;
+            sleep += sleep;
+            if count < retries {
+                debug!("retry {} in {} seconds", count, sleep);
+                thread::sleep(Duration::from_secs(sleep));
+                continue;
+            } else {
+                break Err(anyhow!(
+                    "Failed to mount device {} at {}",
+                    device.as_ref().display(),
+                    mount_point.as_ref().display()
+                ));
+            }
+        }
     }
 }
 
