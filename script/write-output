@@ -12,11 +12,7 @@ set -euo pipefail
 command_on_path mkisofs
 command_on_path cdrecord
 
-CA_STATE="ca-state"
-OUTPUT="output"
-
-info "copying ca-state dir to \"$OUTPUT\""
-cp -R "$CA_STATE" "$OUTPUT"/
+OUTPUT="/var/lib/oks"
 
 TMP_DIR=$(mktemp --directory)
 trap 'rm -rf -- "$TMP_DIR"' EXIT
