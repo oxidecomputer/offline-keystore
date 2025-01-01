@@ -52,16 +52,15 @@ impl IsoWriter {
             .arg(path.as_ref())
             .arg(self.tmpdir.as_ref())
             .output()
-            .with_context(|| {
-                format!(
-                    "failed to create ISO \"{}\" from dir \"{}\"",
-                    path.as_ref().display(),
-                    self.tmpdir.as_ref().display()
-                )
-            })?;
+            .context("failed to execute mkisofs, check PATH")?;
 
         if !output.status.success() {
-            warn!("command failed with status: {}", output.status);
+            warn!(
+                "failed to create ISO \"{}\" from dir \"{}\" with status {}",
+                path.as_ref().display(),
+                self.tmpdir.as_ref().display(),
+                output.status,
+            );
             warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
             return Err(anyhow!(format!(
                 "Failed to make ISO {} from directory {}",
