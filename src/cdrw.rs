@@ -129,21 +129,7 @@ impl CdReader {
     }
 
     pub fn eject(&self) -> Result<()> {
-        let mut cmd = Command::new("eject");
-        let output = cmd.arg(&self.device).output().with_context(|| {
-            format!("failed to run the \"eject\" command: \"{:?}\"", cmd)
-        })?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            warn!("command failed with status: {}", output.status);
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-            Err(anyhow!(
-                "Failed to eject optical device \"{}\"",
-                self.device.display()
-            ))
-        }
+        eject(&self.device)
     }
 
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
@@ -237,24 +223,7 @@ impl CdWriter {
 
     /// Eject / open CD device.
     pub fn eject(&self) -> Result<()> {
-        let mut cmd = Command::new("eject");
-        let output = cmd.arg(&self.device).output().with_context(|| {
-            format!(
-                "Failed to execute eject on device \"{}\"",
-                self.device.display()
-            )
-        })?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            warn!("command failed with status: {}", output.status);
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-            Err(anyhow!(
-                "Failed to eject CD device {}",
-                self.device.display()
-            ))
-        }
+        eject(&self.device)
     }
 }
 
@@ -379,6 +348,25 @@ fn unmount<P: AsRef<Path>>(mount_point: P) -> Result<()> {
         Err(anyhow!(
             "Failed to unmount at {}",
             mount_point.as_ref().display()
+        ))
+    }
+}
+
+pub fn eject<P: AsRef<Path>>(device: P) -> Result<()> {
+    let mut cmd = Command::new("eject");
+    let output = cmd.arg(device.as_ref()).output().with_context(|| {
+        format!("failed to run the \"eject\" command: \"{:?}\"", cmd)
+    })?;
+
+    debug!("execting command: {:?}", cmd);
+    if output.status.success() {
+        Ok(())
+    } else {
+        warn!("command failed with status: {}", output.status);
+        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        Err(anyhow!(
+            "Failed to eject optical device \"{}\"",
+            device.as_ref().display()
         ))
     }
 }
