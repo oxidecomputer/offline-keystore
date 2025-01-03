@@ -86,9 +86,10 @@ impl IsoReader {
 
     pub fn read<P: AsRef<Path>>(&self, path: P) -> Result<Vec<u8>> {
         let loop_dev = loopback_setup(&self.iso_file)?;
-
         let tmpdir = tempdir()?;
-        mount(&loop_dev, &tmpdir, RETRY_COUNT)?;
+
+        // we're mounting a loopback device, no need to wait for it
+        mount(&loop_dev, &tmpdir)?;
 
         let src = tmpdir.path().join(&path);
         let data = fs::read(src)?;
@@ -134,7 +135,9 @@ impl CdReader {
 
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         let tmpdir = tempdir()?;
-        mount(&self.device, &tmpdir, RETRY_COUNT)?;
+
+        wait_for_media(&self.device)?;
+        mount(&self.device, &tmpdir)?;
 
         let path = tmpdir.as_ref().join(name);
         debug!("reading data from {}", path.display());
@@ -190,6 +193,8 @@ impl CdWriter {
 
         let iso = NamedTempFile::new()?;
         self.iso_writer.to_iso(&iso)?;
+
+        wait_for_media(&self.device)?;
 
         let mut cmd = Command::new("cdrecord");
         let output = cmd
@@ -293,43 +298,29 @@ fn loopback_teardown<P: AsRef<Path>>(loop_dev: P) -> Result<()> {
 fn mount<P: AsRef<Path>, Q: AsRef<Path>>(
     device: P,
     mount_point: Q,
-    retries: u32,
 ) -> Result<()> {
     let mut cmd = Command::new("mount");
     let cmd = cmd.arg(device.as_ref()).arg(mount_point.as_ref());
 
-    let mut count = 0;
-    let mut sleep = RETRY_SLEEP;
-    loop {
-        // we do not retry if we can't get output from / execute the command
-        let output = cmd.output().with_context(|| {
-            format!(
-                "failed to execute mount command \"{}\" at \"{}\"",
-                device.as_ref().display(),
-                mount_point.as_ref().display()
-            )
-        })?;
+    debug!("execting command: {:?}", cmd);
+    let output = cmd.output().with_context(|| {
+        format!(
+            "failed to execute mount command \"{}\" at \"{}\"",
+            device.as_ref().display(),
+            mount_point.as_ref().display()
+        )
+    })?;
 
-        if output.status.success() {
-            break Ok(());
-        } else {
-            warn!("command failed with status: {}", output.status);
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-
-            count += 1;
-            sleep += sleep;
-            if count < retries {
-                debug!("retry {} in {} seconds", count, sleep);
-                thread::sleep(Duration::from_secs(sleep));
-                continue;
-            } else {
-                break Err(anyhow!(
-                    "Failed to mount device {} at {}",
-                    device.as_ref().display(),
-                    mount_point.as_ref().display()
-                ));
-            }
-        }
+    if output.status.success() {
+        Ok(())
+    } else {
+        warn!("command failed with status: {}", output.status);
+        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        Err(anyhow!(
+            "Failed to mount device {} at {}",
+            device.as_ref().display(),
+            mount_point.as_ref().display()
+        ))
     }
 }
 
@@ -368,5 +359,44 @@ pub fn eject<P: AsRef<Path>>(device: P) -> Result<()> {
             "Failed to eject optical device \"{}\"",
             device.as_ref().display()
         ))
+    }
+}
+
+fn wait_for_media<P: AsRef<Path>>(device: P) -> Result<()> {
+    let mut cmd = Command::new("blockdev");
+    let cmd = cmd.arg("--getsize64").arg(device.as_ref());
+
+    debug!("execting command: {:?}", cmd);
+    let mut count = 0;
+    let mut sleep = RETRY_SLEEP;
+    loop {
+        let output = cmd
+            .output()
+            .context("faild to execute blockdev, check PATH")?;
+
+        if output.status.success() {
+            debug!("disk detected in drive, continuing");
+            break Ok(());
+        } else {
+            count += 1;
+            sleep += sleep;
+            if count < RETRY_COUNT {
+                debug!(
+                    "no medium in drive {} after {} attempts, retrying in \
+                    {} seconds",
+                    device.as_ref().display(),
+                    count,
+                    sleep
+                );
+                thread::sleep(Duration::from_secs(sleep));
+                continue;
+            } else {
+                break Err(anyhow!(
+                    "No medium found in drive {} after {} retries, failing",
+                    device.as_ref().display(),
+                    RETRY_COUNT,
+                ));
+            }
+        }
     }
 }
