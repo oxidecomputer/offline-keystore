@@ -44,32 +44,33 @@ impl IsoWriter {
 
     pub fn to_iso<P: AsRef<Path>>(self, path: P) -> Result<()> {
         let mut cmd = Command::new("mkisofs");
-        let output = cmd
+        let cmd = cmd
             .arg("-r")
             .arg("-iso-level")
             .arg("4")
             .arg("-o")
             .arg(path.as_ref())
-            .arg(self.tmpdir.as_ref())
+            .arg(self.tmpdir.as_ref());
+
+        debug!("executing command: {:?}", cmd);
+        let output = cmd
             .output()
             .context("failed to execute mkisofs, check PATH")?;
 
-        if !output.status.success() {
+        if output.status.success() {
+            Ok(())
+        } else {
             warn!(
-                "failed to create ISO \"{}\" from dir \"{}\" with status {}",
-                path.as_ref().display(),
-                self.tmpdir.as_ref().display(),
+                "mkisofs failed with status: {}, stderr: \"{}\"",
                 output.status,
+                String::from_utf8_lossy(&output.stderr)
             );
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
-            return Err(anyhow!(format!(
+            Err(anyhow!(format!(
                 "Failed to make ISO {} from directory {}",
                 path.as_ref().display(),
                 self.tmpdir.as_ref().display()
-            )));
+            )))
         }
-
-        Ok(())
     }
 }
 
@@ -197,27 +198,27 @@ impl CdWriter {
         wait_for_media(&self.device)?;
 
         let mut cmd = Command::new("cdrecord");
-        let output = cmd
+        let cmd = cmd
             .arg("-eject")
             .arg("-data")
             .arg(iso.path())
             .arg(format!("dev={}", self.device.display()))
             .arg("gracetime=0")
-            .arg("timeout=1000")
+            .arg("timeout=1000");
+
+        debug!("executing command: {:?}", cmd);
+        let output = cmd
             .output()
-            .with_context(|| {
-                format!(
-                    "failed to execute cdrecord to burn ISO \"{}\" to \"{}\"",
-                    iso.path().display(),
-                    self.device.display()
-                )
-            })?;
+            .context("failed to execute cdrecord, check PATH")?;
 
         if output.status.success() {
             Ok(())
         } else {
-            warn!("command failed with status: {}", output.status);
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "cdrecord failed with status: {}, stderr: \"{}\"",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
             Err(anyhow!(
                 "Failed to burn ISO {} to device {}",
                 iso.path().display(),
@@ -236,16 +237,19 @@ impl CdWriter {
 // losetup stdout
 fn loopback_setup<P: AsRef<Path>>(iso_file: P) -> Result<String> {
     let mut cmd = Command::new("losetup");
-    let output = cmd
-        .arg("-f")
-        .output()
-        .with_context(|| "unable to execute \"losetup\"")?;
+    let cmd = cmd.arg("-f");
 
-    debug!("executing command: \"{:#?}\"", cmd);
+    debug!("executing command: {:?}", cmd);
+    let output = cmd
+        .output()
+        .context("failed to execute losetup, check PATH")?;
 
     if !output.status.success() {
-        warn!("command failed with status: {}", output.status);
-        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        warn!(
+            "losetup failed with status: {}, stderr: \"{}\"",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
         return Err(anyhow!("Failed to get next available loopback device"));
     }
 
@@ -253,18 +257,21 @@ fn loopback_setup<P: AsRef<Path>>(iso_file: P) -> Result<String> {
     debug!("got loopback device: {}", loop_dev);
 
     let mut cmd = Command::new("losetup");
-    let output = cmd
-        .arg(&loop_dev)
-        .arg(iso_file.as_ref())
-        .output()
-        .with_context(|| "failed to execute \"losetup\"")?;
+    let cmd = cmd.arg(&loop_dev).arg(iso_file.as_ref());
 
-    debug!("executing command: \"{:#?}\"", cmd);
+    debug!("executing command: {:?}", cmd);
+    let output = cmd
+        .output()
+        .context("failed to execute losetup, check PATH")?;
+
     if output.status.success() {
         Ok(loop_dev)
     } else {
-        warn!("command failed with status: {}", output.status);
-        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        warn!(
+            "losetup failed with status: {}, stderr: \"{}\"",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
         Err(anyhow!(
             "Failed to create loopback device {} for ISO file {}",
             loop_dev,
@@ -276,17 +283,21 @@ fn loopback_setup<P: AsRef<Path>>(iso_file: P) -> Result<String> {
 fn loopback_teardown<P: AsRef<Path>>(loop_dev: P) -> Result<()> {
     // tear down the loopback device
     let mut cmd = Command::new("losetup");
+    let cmd = cmd.arg("-d").arg(loop_dev.as_ref());
+
+    debug!("executing command: {:?}", cmd);
     let output = cmd
-        .arg("-d")
-        .arg(loop_dev.as_ref())
         .output()
-        .context("failed to execute \"losetup\"")?;
+        .context("failed to execute losetup, check PATH")?;
 
     if output.status.success() {
         Ok(())
     } else {
-        warn!("command failed with status: {}", output.status);
-        warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        warn!(
+            "losetup failed with status: {}, stderr: \"{}\"",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
         Err(anyhow!(
             "Failed to delete loopback device {}",
             loop_dev.as_ref().display()
@@ -327,7 +338,10 @@ fn mount<P: AsRef<Path>, Q: AsRef<Path>>(
 fn unmount<P: AsRef<Path>>(mount_point: P) -> Result<()> {
     // unmount now that we've got the data we need
     let mut cmd = Command::new("umount");
-    let output = cmd.arg(mount_point.as_ref()).output().with_context(|| {
+    let cmd = cmd.arg(mount_point.as_ref());
+
+    debug!("execting command: {:?}", cmd);
+    let output = cmd.output().with_context(|| {
         format!("failed to unmount \"{}\"", mount_point.as_ref().display())
     })?;
 
@@ -366,10 +380,10 @@ fn wait_for_media<P: AsRef<Path>>(device: P) -> Result<()> {
     let mut cmd = Command::new("blockdev");
     let cmd = cmd.arg("--getsize64").arg(device.as_ref());
 
-    debug!("execting command: {:?}", cmd);
     let mut count = 0;
     let mut sleep = RETRY_SLEEP;
     loop {
+        debug!("execting command: {:?}", cmd);
         let output = cmd
             .output()
             .context("faild to execute blockdev, check PATH")?;
