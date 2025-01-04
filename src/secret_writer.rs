@@ -335,7 +335,6 @@ impl SecretWriter for CdwSecretWriter {
 
         util::wait_for_line()?;
 
-        cdw.eject()?;
         cdw.write_password(password)?;
         cdw.burn()?;
 
@@ -343,9 +342,8 @@ impl SecretWriter for CdwSecretWriter {
             "The password has been burned and the output CD is available in\n\
             the drive. Follow the instructions from the script."
         );
-
-        util::wait_for_line()?;
-        CdWriter::new(self.device.as_ref())?.eject()
+        CdWriter::new(self.device.as_ref())?.eject()?;
+        util::wait_for_line()
     }
 
     fn share(
