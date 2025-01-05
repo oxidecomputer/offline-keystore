@@ -904,7 +904,20 @@ fn main() -> Result<()> {
                     let mut shares: Zeroizing<Vec<Share>> =
                         Zeroizing::new(Vec::new());
                     for share in share_itr {
-                        shares.deref_mut().push(*share?.deref());
+                        // We can't use `?` in the closure below so we just
+                        // get it out of the way here.
+                        let share = share?;
+
+                        if shares.iter_mut().any(|u| *u == *share.deref()) {
+                            println!(
+                                "This key share has already been entered. \
+                                Please enter a new one"
+                            );
+                            continue;
+                        } else {
+                            shares.deref_mut().push(*share.deref());
+                        }
+
                         if shares.len() >= THRESHOLD {
                             break;
                         }
