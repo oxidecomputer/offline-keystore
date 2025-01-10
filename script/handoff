@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+. oks-lib.sh
+
+# assume system has just booted & OS CD is still in the drive
+wait_for_cd
+hash-cd
+eject
+
+echo -e "\nInsert the next OKOS disk into the CD drive, then press any key to continue ..."
+wait_for_key_press
+wait_for_cd
+hash-cd
+
+echo -e "\nPress any key to reboot into the next OKOS ..."
+wait_for_key_press
+
+# WARNING
+reboot

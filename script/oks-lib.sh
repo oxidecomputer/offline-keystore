@@ -25,6 +25,7 @@ command_on_path isoinfo
 command_on_path dd
 command_on_path sed
 command_on_path awk
+command_on_path blockdev
 
 # implement common error handling for commands executed
 fail_with_stderr() {
@@ -57,4 +58,28 @@ cd_sha256() {
     dd if=$CD_DEV bs="$BLOCK_SIZE" count="$BLOCK_COUNT" status=none \
         | sha256sum \
         | awk '{print $1}'
+}
+
+wait_for_key_press() {
+    read -n 1 -s
+}
+
+wait_for_cd() {
+    local RETRY=5
+    local SLEEP=5
+
+    while true; do
+        if blockdev --getsize64 /dev/cdrom > /dev/null 2>&1 ; then
+            break
+        else
+            if [ $RETRY -eq 0 ]; then
+                echo >2 "no media in drive after $RETRY attemps, failing"
+                exit 1
+            fi
+            RETRY=$(($RETRY - 1))
+            echo "no media in drive, waiting ..."
+            sleep $SLEEP
+            SLEEP=$(($SLEEP + $SLEEP))
+        fi
+    done
 }
