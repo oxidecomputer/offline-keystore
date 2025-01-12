@@ -22,7 +22,7 @@ use oks::{
     ca::{Ca, CertOrCsr},
     config::{
         self, CsrSpec, DcsrSpec, KeySpec, Transport, CSRSPEC_EXT, DCSRSPEC_EXT,
-        ENV_NEW_PASSWORD, ENV_PASSWORD, KEYSPEC_EXT,
+        KEYSPEC_EXT,
     },
     hsm::Hsm,
     secret_reader::{
@@ -50,6 +50,14 @@ const CERT_SUFFIX: &str = "cert.pem";
 // when we write out signed debug credentials to the file system this suffix
 // is appended
 const DCSR_SUFFIX: &str = "dc.bin";
+
+// string for environment variable used to pass in the authentication
+// password for the HSM
+pub const ENV_PASSWORD: &str = "OKS_PASSWORD";
+
+// string for environment variable used to pass in a NEW authentication
+// password for the HSM
+pub const ENV_NEW_PASSWORD: &str = "OKS_NEW_PASSWORD";
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -420,14 +428,13 @@ fn do_ceremony<P: AsRef<Path>>(
         hsm.generate(key_spec.as_ref())?;
     }
 
-    // set env var for oks::ca module to pickup for PKCS11 auth
-    env::set_var(ENV_PASSWORD, &passwd_new);
     // for each key_spec in `key_spec` initialize Ca
     let cas = initialize_all_ca(
         key_spec.as_ref(),
         pkcs11_path.as_ref(),
         &args.state,
         &args.output,
+        &passwd_new,
     )?;
     sign_all(
         &cas,
@@ -435,6 +442,7 @@ fn do_ceremony<P: AsRef<Path>>(
         &args.state,
         &args.output,
         args.transport,
+        &passwd_new,
     )
 }
 
@@ -443,6 +451,7 @@ pub fn initialize_all_ca<P: AsRef<Path>>(
     pkcs11_path: P,
     ca_state: P,
     out: P,
+    password: &Zeroizing<String>,
 ) -> Result<HashMap<String, Ca>> {
     let key_spec = fs::canonicalize(key_spec)?;
     debug!("canonical KeySpec path: {}", key_spec.display());
@@ -485,14 +494,18 @@ pub fn initialize_all_ca<P: AsRef<Path>>(
         let ca_dir = fs::canonicalize(ca_state.as_ref())?.join(&label);
 
         // Initialize the a CA with the key defined by the KeySpec
-        let cert_or_csr =
-            Ca::initialize(&spec, ca_dir.as_path(), pkcs11_path.as_ref())
-                .with_context(|| {
-                    format!(
-                        "Failed to initialize Ca from keyspec: {}",
-                        key_spec.display()
-                    )
-                })?;
+        let cert_or_csr = Ca::initialize(
+            &spec,
+            ca_dir.as_path(),
+            pkcs11_path.as_ref(),
+            password,
+        )
+        .with_context(|| {
+            format!(
+                "Failed to initialize Ca from keyspec: {}",
+                key_spec.display()
+            )
+        })?;
 
         let (path, pem) = match cert_or_csr {
             CertOrCsr::Cert(p) => {
@@ -542,6 +555,7 @@ pub fn load_all_ca<P: AsRef<Path>>(ca_state: P) -> Result<HashMap<String, Ca>> {
 fn sign_csrspec<P: AsRef<Path>>(
     spec: P,
     cas: &HashMap<String, Ca>,
+    password: &Zeroizing<String>,
 ) -> Result<Vec<u8>> {
     let json = fs::read_to_string(&spec).with_context(|| {
         format!(
@@ -557,7 +571,7 @@ fn sign_csrspec<P: AsRef<Path>>(
         .ok_or(anyhow!("no CA \"{}\" for CsrSpec", ca_name))?;
 
     info!("Signing CSR from CsrSpec: {}", spec.as_ref().display());
-    signer.sign_csrspec(&csr_spec)
+    signer.sign_csrspec(&csr_spec, password)
 }
 
 // Get the DcsrSpec from the provided file, generate a debug credential from
@@ -596,6 +610,7 @@ pub fn sign_all<P: AsRef<Path>>(
     state: P,
     out: P,
     transport: Transport,
+    password: &Zeroizing<String>,
 ) -> Result<()> {
     let spec = fs::canonicalize(spec)?;
     debug!("canonical spec path: {}", &spec.display());
@@ -645,7 +660,7 @@ pub fn sign_all<P: AsRef<Path>>(
         };
 
         let (suffix, data) = if filename.ends_with(CSRSPEC_EXT) {
-            (CERT_SUFFIX, sign_csrspec(path, cas)?)
+            (CERT_SUFFIX, sign_csrspec(path, cas, password)?)
         } else if filename.ends_with(DCSRSPEC_EXT) {
             let mut hsm = Hsm::new(
                 0x0002,
@@ -653,7 +668,7 @@ pub fn sign_all<P: AsRef<Path>>(
                 // This assumes that the OKM_HSM_PKCS11_AUTH env var has
                 // already been set up. When this code was in the ca module
                 // that was true but it may not be here.
-                &passwd_from_env("OKM_HSM_PKCS11_AUTH")?,
+                password,
                 out.as_ref(),
                 state.as_ref(),
                 false,
@@ -671,15 +686,6 @@ pub fn sign_all<P: AsRef<Path>>(
     }
 
     Ok(())
-}
-
-// TODO: this is sketchy ... likely an artifact of bad / no design
-fn passwd_from_env(env_str: &str) -> Result<String> {
-    Ok(env::var(env_str)?
-            .strip_prefix("0002")
-            .ok_or_else(|| anyhow!("Missing key identifier prefix in environment variable \"{env_str}\" that is expected to contain an HSM password"))?
-            .to_string()
-        )
 }
 
 fn main() -> Result<()> {
@@ -702,12 +708,9 @@ fn main() -> Result<()> {
             auth_method,
             command,
         } => {
-            // The CA modules pulls the password out of the environment. If
-            // ENV_PASSWORD isn't set the caller will be challenged.
             let mut passwd_reader =
                 secret_reader::get_passwd_reader(&auth_method)?;
             let password = passwd_reader.read(PASSWD_PROMPT)?;
-            std::env::set_var(ENV_PASSWORD, password.deref());
 
             match command {
                 CaCommand::Initialize {
@@ -719,6 +722,7 @@ fn main() -> Result<()> {
                         &pkcs11_path,
                         &args.state,
                         &args.output,
+                        &password,
                     )?;
                     Ok(())
                 }
@@ -730,6 +734,7 @@ fn main() -> Result<()> {
                         &args.state,
                         &args.output,
                         args.transport,
+                        &password,
                     )
                 }
             }
