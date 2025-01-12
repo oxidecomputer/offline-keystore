@@ -21,7 +21,7 @@ use x509_cert::{certificate::Certificate, der::DecodePem};
 use yubihsm::Client;
 use zeroize::Zeroizing;
 
-use crate::config::{CsrSpec, DcsrSpec, KeySpec, Purpose, ENV_PASSWORD};
+use crate::config::{CsrSpec, DcsrSpec, KeySpec, Purpose};
 
 /// Name of file in root of a CA directory with key spec used to generate key
 /// in HSM.
@@ -29,6 +29,12 @@ const CA_KEY_SPEC: &str = "key.spec";
 
 /// Name of file in root of a CA directory containing the CA's own certificate.
 const CA_CERT: &str = "ca.cert.pem";
+
+// Name of the environment variable to get the YubiHSM auth id and password
+// into the PKCS#11 module, the format is "<auth-id>:<passwd>" where
+// `auth-id` is a 4 digit decimal number and `password` is a string. We use
+// a second variable to accommodate the `auth-id`.
+pub const ENV_CA_PASSWORD: &str = "OKM_HSM_PKCS11_AUTH";
 
 #[derive(Error, Debug)]
 pub enum CaError {
@@ -170,13 +176,10 @@ tcg-dice-kp-eca = 2.23.133.5.4.100.12
 /// the password multiple times (once for signing the CSR, one for signing
 /// the cert). We also prefix the password with '0002' so the YubiHSM
 /// PKCS#11 module knows which key to use
-fn passwd_to_env(env_str: &str) -> Result<()> {
-    let mut password = Zeroizing::new("0002".to_string());
-    let passwd = Zeroizing::new(match env::var(ENV_PASSWORD).ok() {
-        Some(p) => p,
-        None => rpassword::prompt_password("Enter YubiHSM Password: ")?,
-    });
-    password.push_str(&passwd);
+fn passwd_to_env(env_str: &str, password: &Zeroizing<String>) -> Result<()> {
+    use std::ops::Deref;
+
+    let password = Zeroizing::new(format!("0002:{}", password.deref()));
     std::env::set_var(env_str, password);
 
     Ok(())
@@ -255,6 +258,7 @@ impl Ca {
         spec: &KeySpec,
         root: P,
         pkcs11_lib: P,
+        password: &Zeroizing<String>,
     ) -> Result<CertOrCsr> {
         match spec.purpose {
             Purpose::RoTReleaseRoot
@@ -274,7 +278,7 @@ impl Ca {
         let connector = start_connector()?;
         // the PKCS#11 module gets the auth value for the YubiHSM from the
         // environment
-        passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
+        passwd_to_env(ENV_CA_PASSWORD, password)?;
 
         let csr = NamedTempFile::new()?;
 
@@ -295,7 +299,7 @@ impl Ca {
             .arg("-key")
             .arg(format!("0:{:04x}", spec.id))
             .arg("-passin")
-            .arg("env:OKM_HSM_PKCS11_AUTH")
+            .arg(format!("env:{}", ENV_CA_PASSWORD))
             .arg("-out")
             .arg(csr.path());
 
@@ -387,7 +391,11 @@ impl Ca {
 
     /// Sign the CSR from the provided CsrSpec. The cert produced is returned
     /// as a PEM encoded x509 cert.
-    pub fn sign_csrspec(&self, spec: &CsrSpec) -> Result<Vec<u8>> {
+    pub fn sign_csrspec(
+        &self,
+        spec: &CsrSpec,
+        password: &Zeroizing<String>,
+    ) -> Result<Vec<u8>> {
         // map purpose of CA key to key associated with CSR
         // this is awkward and should be revisited
         let purpose = match self.spec.purpose {
@@ -418,7 +426,7 @@ impl Ca {
         let cert = NamedTempFile::new()?;
 
         let connector = start_connector()?;
-        passwd_to_env("OKM_HSM_PKCS11_AUTH")?;
+        passwd_to_env(ENV_CA_PASSWORD, password)?;
 
         let mut cmd = Command::new("openssl");
         cmd.arg("ca")
@@ -435,7 +443,7 @@ impl Ca {
             .arg("-extensions")
             .arg(purpose.to_string())
             .arg("-passin")
-            .arg("env:OKM_HSM_PKCS11_AUTH")
+            .arg(format!("env:{}", ENV_CA_PASSWORD))
             .arg("-in")
             .arg(csr.path())
             .arg("-out")

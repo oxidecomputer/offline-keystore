@@ -20,13 +20,6 @@ use yubihsm::{
     Capability, Domain,
 };
 
-// string for environment variable used to pass in the authentication
-// password for the HSM
-pub const ENV_PASSWORD: &str = "OKS_PASSWORD";
-// string for environment variable used to pass in a NEW authentication
-// password for the HSM
-pub const ENV_NEW_PASSWORD: &str = "OKS_NEW_PASSWORD";
-
 pub const KEYSPEC_EXT: &str = ".keyspec.json";
 pub const CSRSPEC_EXT: &str = ".csrspec.json";
 pub const DCSRSPEC_EXT: &str = ".dcsrspec.json";
