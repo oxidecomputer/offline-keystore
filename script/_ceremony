@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -eou pipefail
+
+. oks-lib.sh
+
+while read -rsp "Enter password: " OKS_PASSWORD; do
+    export OKS_PASSWORD
+
+    if ! oks hsm --auth-id 2 serial-number --auth-method stdio > /dev/null 2>&1; then
+        echo "incorrect password, please try again ..."
+    else
+        echo -e "success!"
+
+        read -rsp "Press the \"Enter\" key to begin the ceremony:"
+        echo ""
+        break
+    fi
+done
+
+# challenge operator for YubiHSM password over stdio change the auth
+# value to a new randomly generated one export the new password to CDW
+info "Changing OKS auth value: auth from STDIO, output to CDW"
+oks hsm change-auth --auth-method stdio --secret-method cdw
+
+unset OKS_PASSWORD
+
+# sign the input requests from /usr/share/oks using the CD for
+# authentication
+info "Signing requests: auth from CDW"
+oks ca --auth-method cdr sign
