@@ -664,10 +664,6 @@ pub fn sign_all<P: AsRef<Path>>(
         } else if filename.ends_with(DCSRSPEC_EXT) {
             let mut hsm = Hsm::new(
                 0x0002,
-                // TODO: this will probably not work
-                // This assumes that the OKM_HSM_PKCS11_AUTH env var has
-                // already been set up. When this code was in the ca module
-                // that was true but it may not be here.
                 password,
                 out.as_ref(),
                 state.as_ref(),
