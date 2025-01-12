@@ -2,6 +2,7 @@
 # functions common to oks scripts
 
 CD_DEV=/dev/cdrom
+export OUTPUT=/var/lib/oks
 
 error() {
     >&2 command echo ["$(date --utc +%FT%TZ)" ERROR "${0##*/}"] "$@"

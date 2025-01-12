@@ -12,8 +12,6 @@ set -euo pipefail
 command_on_path mkisofs
 command_on_path cdrecord
 
-OUTPUT="/var/lib/oks"
-
 TMP_DIR=$(mktemp --directory)
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 
