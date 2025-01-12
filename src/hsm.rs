@@ -177,7 +177,7 @@ impl Hsm {
                 &self.client,
                 AUTH_ID,
                 Type::AuthenticationKey,
-                &self.state_dir,
+                &self.out_dir,
             )?;
         }
 
@@ -250,7 +250,7 @@ impl Hsm {
                     &self.client,
                     id,
                     Type::AsymmetricKey,
-                    &self.state_dir,
+                    &self.out_dir,
                 )?;
             }
         }
