@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+set -eou pipefail
+
+. oks-lib.sh
+
+CEREMONY_SCRIPT=_ceremony
+
+if [ ! -e "$OUTPUT" ]; then
+    info "Creating output directory."
+    mkdir -p "$OUTPUT"
+fi
+
+info "Starting terminal session recording."
+script \
+    --timing="$OUTPUT"/script-timing.log \
+    --command "hash-cd && $CEREMONY_SCRIPT" \
+    "$OUTPUT"/script.log
+
+info "Script session ended"
+
+eject $CD_DEV
+echo -ne "\nInsert blank media into CD drive then press any key to burn output disk:"
+wait_for_key_press
+echo -ne "\n"
+
+# export all data from /var/lib/oks to CDW
+wait_for_cd
+write-output
+
+echo -e "\nOutput written to CDW. The ceremony is now compplete."
+echo -n "Press any key to poweroff:"
+wait_for_key_press
+
+poweroff
