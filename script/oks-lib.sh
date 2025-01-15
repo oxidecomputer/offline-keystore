@@ -73,11 +73,11 @@ wait_for_cd() {
             break
         else
             if [ $RETRY -eq 0 ]; then
-                echo >2 "no media in drive after $RETRY attemps, failing"
+                error "no media in drive after $RETRY attemps, failing"
                 exit 1
             fi
             RETRY=$(($RETRY - 1))
-            echo "no media in drive, waiting ..."
+            info "no media in drive, waiting ..."
             sleep $SLEEP
             SLEEP=$(($SLEEP + $SLEEP))
         fi
