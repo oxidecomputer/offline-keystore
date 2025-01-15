@@ -204,7 +204,8 @@ impl CdWriter {
             .arg(iso.path())
             .arg(format!("dev={}", self.device.display()))
             .arg("gracetime=0")
-            .arg("timeout=1000");
+            .arg("timeout=1000")
+            .arg("speed=1");
 
         debug!("executing command: {:?}", cmd);
         let output = cmd
