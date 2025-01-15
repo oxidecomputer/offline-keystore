@@ -861,7 +861,12 @@ fn main() -> Result<()> {
 
                     // store the new secret in a known slot (auth-id 2)
                     // delete tmp auth value (auth-id 1)
-                    hsm.replace_default_auth(&passwd_new)
+                    hsm.replace_default_auth(&passwd_new)?;
+                    println!(
+                        "The password has been burned and the output CD is \
+                        available in the drive."
+                    );
+                    Ok(())
                 }
                 HsmCommand::Generate {
                     ref auth_method,

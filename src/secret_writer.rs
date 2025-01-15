@@ -9,7 +9,7 @@ use std::{
     env,
     ffi::OsStr,
     fs::{File, OpenOptions},
-    io::Write,
+    io::{self, Write},
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -326,24 +326,23 @@ impl SecretWriter for CdwSecretWriter {
         let cdw = CdWriter::new(self.device.as_ref())?;
         cdw.eject()?;
 
-        println!(
-            "\nWARNING: The HSM authentication password has been created.\n\
-            It will now be written to CDR media.\n\n\
-            Put a blank disk in the drive, then press enter to burn the disk \
-            ...",
+        print!(
+            "\nThe HSM authentication password has been created.\n\
+            It will now be written to CD media.\n\n\
+            Put a blank disk in the drive, then press enter to burn the disk:",
         );
-
+        io::stdout().flush().context("Flushing stdout")?;
         util::wait_for_line()?;
+        println!("\nBurning password to CD...");
 
         cdw.write_password(password)?;
         cdw.burn()?;
 
         println!(
             "The password has been burned and the output CD is available in\n\
-            the drive. Follow the instructions from the script."
+            the drive."
         );
-        CdWriter::new(self.device.as_ref())?.eject()?;
-        util::wait_for_line()
+        CdWriter::new(self.device.as_ref())?.eject()
     }
 
     fn share(
