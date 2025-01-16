@@ -190,16 +190,19 @@ impl Hsm {
         Ok(())
     }
 
-    // Create an auth value w/ id 1 for the well known password, then delete
-    // the auth value w/ id 2.
-    pub fn restore_default_auth(&self) -> Result<()> {
-        info!("Restoring default auth credential.");
-        // create an auth key like the default w/ a known seed
-        let auth_key = Key::derive_from_password("password".as_bytes());
+    pub fn add_auth(
+        &self,
+        auth_id: Id,
+        password: &Zeroizing<String>,
+    ) -> Result<()> {
+        info!("Adding auth credential w/ Id: {}", auth_id);
+        // Key implements Zeroize internally on drop
+        let auth_key = Key::derive_from_password(password.as_bytes());
 
+        // create a new auth key
         self.client
             .put_authentication_key(
-                DEFAULT_AUTHENTICATION_KEY_ID,
+                auth_id,
                 AUTH_LABEL.into(),
                 AUTH_DOMAINS,
                 AUTH_CAPS,
@@ -207,14 +210,27 @@ impl Hsm {
                 authentication::Algorithm::default(), // can't be used in const
                 auth_key,
             )
-            .context("Put temporary auth key w/ known value")?;
+            .with_context(|| format!("Putting auth key w/ Id: {}", auth_id))?;
 
-        info!("Deleting auth credential w/ key id: {}", AUTH_ID);
+        // backup the auth key
+        if self.backup {
+            backup_object(
+                &self.client,
+                auth_id,
+                Type::AuthenticationKey,
+                &self.out_dir,
+            )
+            .with_context(|| format!("Backup object w/ id: {}", auth_id))?;
+        }
+
+        Ok(())
+    }
+
+    pub fn delete_auth(&self, auth_id: Id) -> Result<()> {
+        info!("Deleting default auth key w/ Id: {}.", auth_id);
         self.client
-            .delete_object(AUTH_ID, Type::AuthenticationKey)
-            .with_context(|| {
-                format!("Delete authentication key object w/ id {}", AUTH_ID)
-            })?;
+            .delete_object(auth_id, Type::AuthenticationKey)
+            .with_context(|| format!("Delete auth key with Id: {}", auth_id))?;
 
         Ok(())
     }

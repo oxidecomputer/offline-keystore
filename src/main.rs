@@ -832,14 +832,14 @@ fn main() -> Result<()> {
                         args.transport,
                     )?;
 
-                    // create a temp auth value in a known slot (auth-id 1)
-                    // delete old auth value from known slot (auth-id 2)
-                    hsm.restore_default_auth()?;
+                    // move auth value to id 3 & remove from id 2
+                    hsm.add_auth(3, &passwd)?;
+                    hsm.delete_auth(auth_id)?;
 
-                    // auth to HSM w/ tmp auth value
+                    // auth w/ same passwd but auth-id 3 this time
                     let mut hsm = Hsm::new(
-                        1,
-                        "password",
+                        3,
+                        &passwd,
                         &args.output,
                         &args.state,
                         !no_backup,
@@ -859,9 +859,11 @@ fn main() -> Result<()> {
 
                     secret_writer.password(&passwd_new)?;
 
-                    // store the new secret in a known slot (auth-id 2)
-                    // delete tmp auth value (auth-id 1)
-                    hsm.replace_default_auth(&passwd_new)?;
+                    // add new auth value to auth-id 2, remove old value from
+                    // auth-id 3
+                    hsm.add_auth(2, &passwd_new)?;
+                    hsm.delete_auth(3)?;
+
                     println!(
                         "The password has been burned and the output CD is \
                         available in the drive."
