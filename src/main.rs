@@ -823,22 +823,8 @@ fn main() -> Result<()> {
                     // authenticate using the existing credentials (auth-id 2)
                     let passwd = get_passwd(auth_id, auth_method, &command)?;
                     let auth_id = get_auth_id(auth_id, &command);
-                    let hsm = Hsm::new(
-                        auth_id,
-                        &passwd,
-                        &args.output,
-                        &args.state,
-                        !no_backup,
-                        args.transport,
-                    )?;
-
-                    // move auth value to id 3 & remove from id 2
-                    hsm.add_auth(3, &passwd)?;
-                    hsm.delete_auth(auth_id)?;
-
-                    // auth w/ same passwd but auth-id 3 this time
                     let mut hsm = Hsm::new(
-                        3,
+                        auth_id,
                         &passwd,
                         &args.output,
                         &args.state,
@@ -866,6 +852,20 @@ fn main() -> Result<()> {
                             ),
                         }
                     }
+
+                    // move auth value to id 3 & remove from id 2
+                    hsm.add_auth(3, &passwd)?;
+                    hsm.delete_auth(auth_id)?;
+
+                    // auth w/ same passwd but auth-id 3 this time
+                    let hsm = Hsm::new(
+                        3,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
 
                     // add new auth value to auth-id 2, remove old value from
                     // auth-id 3
