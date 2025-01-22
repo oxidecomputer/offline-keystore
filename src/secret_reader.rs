@@ -139,7 +139,7 @@ impl PasswordReader for CdrPasswordReader {
 
         print!(
             "Place authentication CD in the drive, close the drive, then press \n\
-               any key to continue: "
+               the \"Enter\" key to continue: "
         );
         match io::stdout().flush() {
             Ok(()) => (),
