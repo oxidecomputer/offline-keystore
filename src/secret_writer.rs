@@ -329,7 +329,8 @@ impl SecretWriter for CdwSecretWriter {
         print!(
             "\nThe HSM authentication password has been created.\n\
             It will now be written to CD media.\n\n\
-            Put a blank disk in the drive, then press enter to burn the disk:",
+            Put a blank disk in the drive, then press \"Enter\" to burn the \
+            disk:",
         );
         io::stdout().flush().context("Flushing stdout")?;
         util::wait_for_line()?;
