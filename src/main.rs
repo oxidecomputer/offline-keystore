@@ -854,10 +854,18 @@ fn main() -> Result<()> {
                     };
 
                     // write said secret out with the selected method
-                    let secret_writer =
-                        secret_writer::get_writer(secret_method)?;
+                    loop {
+                        let secret_writer =
+                            secret_writer::get_writer(secret_method)?;
 
-                    secret_writer.password(&passwd_new)?;
+                        match secret_writer.password(&passwd_new) {
+                            Ok(()) => break,
+                            Err(_) => println!(
+                                "Failed to write password to media, \
+                                retrying ..."
+                            ),
+                        }
+                    }
 
                     // add new auth value to auth-id 2, remove old value from
                     // auth-id 3
