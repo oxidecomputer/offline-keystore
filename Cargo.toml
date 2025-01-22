@@ -1,6 +1,6 @@
 [package]
 name = "oks"
-version = "0.3.0"
+version = "0.3.1"
 description = """
 A utility for managing and interacting with the offline keystore.
 """
