@@ -39,5 +39,5 @@ info "ISO has sha256 digest:\n$ISO_HASH"
 info "writing ISO to device: \"$CD_DEV\""
 
 fail_with_stderr \
-    cdrecord -eject -data "$ISO" dev="$CD_DEV" gracetime=0 timeout=1000 \
+    cdrecord -eject -data "$ISO" dev="$CD_DEV" gracetime=0 timeout=1000 speed=1 \
     > /dev/null
