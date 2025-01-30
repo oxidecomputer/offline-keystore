@@ -1055,6 +1055,7 @@ dependencies = [
  "rand",
  "rand_core 0.6.4",
  "rpassword",
+ "rsa",
  "serde",
  "serde_json",
  "serde_with",
