@@ -23,6 +23,9 @@ use yubihsm::{
 pub const KEYSPEC_EXT: &str = ".keyspec.json";
 pub const CSRSPEC_EXT: &str = ".csrspec.json";
 pub const DCSRSPEC_EXT: &str = ".dcsrspec.json";
+// when we write out signed debug credentials to the file system this suffix
+// is appended
+pub const DCSR_EXT: &str = "dc.bin";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
