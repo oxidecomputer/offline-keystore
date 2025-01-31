@@ -3,7 +3,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::{anyhow, Context, Result};
+use hex::ToHex;
 use log::{debug, error, info, warn};
+use rsa::{pkcs1::EncodeRsaPublicKey, RsaPublicKey};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     env,
@@ -21,7 +24,7 @@ use x509_cert::{certificate::Certificate, der::DecodePem};
 use yubihsm::Client;
 use zeroize::Zeroizing;
 
-use crate::config::{CsrSpec, DcsrSpec, KeySpec, Purpose};
+use crate::config::{CsrSpec, DcsrSpec, KeySpec, Purpose, DCSR_EXT};
 
 /// Name of file in root of a CA directory with key spec used to generate key
 /// in HSM.
@@ -210,17 +213,97 @@ pub enum CertOrCsr {
     Csr(String),
 }
 
+pub struct DacStore {
+    root: PathBuf,
+}
+
+impl DacStore {
+    fn pubkey_to_digest(pubkey: &RsaPublicKey) -> Result<String> {
+        // calculate sha256(pub_key) where pub_key is the DER encoded RSA key
+        let der = pubkey
+            .to_pkcs1_der()
+            .context("Encode RSA public key as DER")?;
+
+        let mut digest = Sha256::new();
+        digest.update(der.as_bytes());
+        let digest = digest.finalize();
+
+        Ok(digest.encode_hex::<String>())
+    }
+
+    fn pubkey_to_dcsr_path(&self, pubkey: &RsaPublicKey) -> Result<PathBuf> {
+        let digest = Self::pubkey_to_digest(pubkey)?;
+
+        Ok(self.root.as_path().join(format!("{}.{}", digest, DCSR_EXT)))
+    }
+
+    pub fn new<P: AsRef<Path>>(root: P) -> Result<Self> {
+        // check that the path provided exists
+        let metadata = fs::metadata(root.as_ref()).with_context(|| {
+            format!(
+                "Getting metadata for DacStore root: {}",
+                root.as_ref().display()
+            )
+        })?;
+
+        // - is a directory
+        if !metadata.is_dir() {
+            return Err(anyhow!("DacStore root is not a directory"));
+        }
+
+        // - we have write access to it
+        if metadata.permissions().readonly() {
+            return Err(anyhow!("DacStore directory is not writable"));
+        }
+
+        Ok(Self {
+            root: PathBuf::from(root.as_ref()),
+        })
+    }
+
+    pub fn add(&self, pubkey: &RsaPublicKey, dcsr: &[u8]) -> Result<()> {
+        // Make sure we haven't already issued a DCSR for this key before
+        // we save it to disk. The caller should perform this check before
+        // signing the DCSR but we do it here also to keep from overwriting
+        // an existing one.
+        if let Some(path) = self.find(pubkey)? {
+            return Err(anyhow!(
+                "DCSR for public key exists: {}",
+                path.display()
+            ));
+        }
+
+        let path = self.pubkey_to_dcsr_path(pubkey)?;
+
+        fs::write(&path, dcsr)
+            .context(format!("Writing DCSR to destination {}", path.display()))
+    }
+
+    pub fn find(&self, pubkey: &RsaPublicKey) -> Result<Option<PathBuf>> {
+        let path = self.pubkey_to_dcsr_path(pubkey)?;
+
+        if fs::exists(&path).with_context(|| {
+            format!("Checking for the existance of {}", path.display())
+        })? {
+            Ok(Some(path))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 /// The `Ca` type represents the collection of files / metadata that is a
 /// certificate authority.
 pub struct Ca {
     root: PathBuf,
     spec: KeySpec,
+    dacs: DacStore,
 }
 
 impl Ca {
     /// Create a Ca instance from a directory. This directory must be the
     /// root of a previously initialized Ca.
-    pub fn load<P: AsRef<Path>>(root: P) -> Result<Self> {
+    pub fn load<P: AsRef<Path>>(root: P, dacs: DacStore) -> Result<Self> {
         let root = PathBuf::from(root.as_ref());
 
         let spec = root.join(CA_KEY_SPEC);
@@ -231,7 +314,7 @@ impl Ca {
         let spec = fs::read_to_string(spec)?;
         let spec = KeySpec::from_str(spec.as_ref())?;
 
-        Ok(Self { root, spec })
+        Ok(Self { root, spec, dacs })
     }
 
     /// Get the name of the CA in `String` form. A `Ca`s name comes from the
@@ -487,6 +570,17 @@ impl Ca {
         client: &Client,
     ) -> Result<Vec<u8>> {
         debug!("signing DcsrSpec: {:?}", spec);
+        if let Some(dcsr) = self
+            .dacs
+            .find(&spec.dcsr.debug_public_key)
+            .context("Looking up DCSR for pubkey")?
+        {
+            return Err(anyhow!(
+                "DCSR has already been issued for key: {}",
+                dcsr.display()
+            ));
+        }
+
         // Collect certs for the 4 trust anchors listed in the `root_labels`.
         // These are the 4 trust anchors trusted by the lpc55 verified boot.
         let mut certs: Vec<Certificate> = Vec::new();
@@ -503,6 +597,8 @@ impl Ca {
         let cert = self.cert()?;
         let signer_public_key = lpc55_sign::cert::public_key(&cert)?;
 
+        // lpc55_sign ergonomics
+        let debug_public_key = spec.dcsr.debug_public_key.clone();
         // Construct the to-be-signed debug credential
         let dc_tbs = lpc55_sign::debug_auth::debug_credential_tbs(
             certs,
@@ -518,6 +614,17 @@ impl Ca {
         let mut dc = Vec::new();
         dc.extend_from_slice(&dc_tbs);
         dc.extend_from_slice(&dc_sig.into_vec());
+
+        // We do not fail this function if writing the signed DAC to the
+        // DacStore fails because it has already been signed. Returning it to
+        // the caller is paramount. We can fixup the DacStore in post.
+        if let Err(e) = self.dacs.add(&debug_public_key, &dc) {
+            error!(
+                "DAC was signed successfully but we failed to write it to the \
+                DacStore: {}",
+                e
+            );
+        }
 
         Ok(dc)
     }

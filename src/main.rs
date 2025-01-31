@@ -8,7 +8,9 @@ use env_logger::Builder;
 use log::{debug, error, info, LevelFilter};
 use std::{
     collections::HashMap,
-    env, fs,
+    env,
+    ffi::OsStr,
+    fs,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
@@ -19,10 +21,10 @@ use zeroize::Zeroizing;
 use oks::{
     alphabet::Alphabet,
     backup::{BackupKey, Share, Verifier, LIMIT, THRESHOLD},
-    ca::{Ca, CertOrCsr},
+    ca::{Ca, CertOrCsr, DacStore},
     config::{
         self, CsrSpec, DcsrSpec, KeySpec, Transport, CSRSPEC_EXT, DCSRSPEC_EXT,
-        KEYSPEC_EXT,
+        DCSR_EXT, KEYSPEC_EXT,
     },
     hsm::Hsm,
     secret_reader::{
@@ -41,15 +43,14 @@ const VERIFIER_PATH: &str = "/usr/share/oks/verifier.json";
 
 const OUTPUT_PATH: &str = "/var/lib/oks";
 const STATE_PATH: &str = "/var/lib/oks/ca-state";
+// Name of directory where we store signed DACs. The caller can override the
+// default location of the ca-state but DAC_DIR will always be in ca-state.
+const DAC_DIR: &str = "dacs";
 
 const GEN_PASSWD_LENGTH: usize = 16;
 
 // when we write out signed certs to the file system this suffix is appended
 const CERT_SUFFIX: &str = "cert.pem";
-
-// when we write out signed debug credentials to the file system this suffix
-// is appended
-const DCSR_SUFFIX: &str = "dc.bin";
 
 // string for environment variable used to pass in the authentication
 // password for the HSM
@@ -479,6 +480,7 @@ pub fn initialize_all_ca<P: AsRef<Path>>(
     })?;
 
     let mut map = HashMap::new();
+    let dcsr_dir = fs::canonicalize(ca_state.as_ref())?.join(DAC_DIR);
     for key_spec in paths {
         let spec = fs::canonicalize(&key_spec)?;
         debug!("canonical KeySpec path: {}", spec.display());
@@ -520,7 +522,8 @@ pub fn initialize_all_ca<P: AsRef<Path>>(
         })?;
 
         //
-        let ca = Ca::load(ca_dir.as_path())?;
+        let dcsr_store = DacStore::new(&dcsr_dir)?;
+        let ca = Ca::load(ca_dir.as_path(), dcsr_store)?;
         if map.insert(ca.name(), ca).is_some() {
             return Err(anyhow!("duplicate key label"));
         }
@@ -530,17 +533,22 @@ pub fn initialize_all_ca<P: AsRef<Path>>(
 }
 
 pub fn load_all_ca<P: AsRef<Path>>(ca_state: P) -> Result<HashMap<String, Ca>> {
-    // find all directories under `ca_state`
-    // for each directory in `ca_state`, Ca::load(directory)
-    // insert into hash map
+    // all CAs share a common directory tracking DCSRs issued
+    let dacs = fs::canonicalize(ca_state.as_ref())?.join(DAC_DIR);
+
+    // find all directories under `ca_state` that aren't 'dcsrs'
+    // for each directory in `ca_state`, assume it's an openssl CA, Ca::load()
+    // it, then insert into hash map
     let dirs: Vec<PathBuf> = fs::read_dir(ca_state.as_ref())?
         .filter(|x| x.is_ok()) // filter out error variant to make unwrap safe
         .map(|r| r.unwrap().path()) // get paths
         .filter(|x| x.is_dir()) // filter out every path that isn't a directory
+        .filter(|x| x.file_name() != Some(OsStr::new(DAC_DIR))) // filter out non-CA directories
         .collect();
     let mut cas: HashMap<String, Ca> = HashMap::new();
     for dir in dirs {
-        let ca = Ca::load(dir)?;
+        let dac_store = DacStore::new(&dacs)?;
+        let ca = Ca::load(dir, dac_store)?;
         if cas.insert(ca.name(), ca).is_some() {
             return Err(anyhow!("found CA with duplicate key label"));
         }
@@ -670,7 +678,7 @@ pub fn sign_all<P: AsRef<Path>>(
                 false,
                 transport,
             )?;
-            (DCSR_SUFFIX, sign_dcsrspec(path, cas, &mut hsm)?)
+            (DCSR_EXT, sign_dcsrspec(path, cas, &mut hsm)?)
         } else {
             return Err(anyhow!("Unknown input spec: {}", path.display()));
         };
@@ -698,6 +706,7 @@ fn main() -> Result<()> {
 
     make_dir(&args.output)?;
     make_dir(&args.state)?;
+    make_dir(&Path::new(&args.state).join(DAC_DIR))?;
 
     match args.command {
         Command::Ca {
