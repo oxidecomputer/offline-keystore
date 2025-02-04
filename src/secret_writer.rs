@@ -163,7 +163,7 @@ impl SecretWriter for PrinterSecretWriter {
             if i % 4 == 0 {
                 print_file.write_all(&[CR, LF])?;
             }
-            print_file.write_all(&[b'\t'])?;
+            print_file.write_all(b"\t")?;
             print_file.write_all(chunk)?;
         }
 
@@ -220,7 +220,7 @@ impl SecretWriter for PrinterSecretWriter {
             if i % 4 == 0 {
                 print_file.write_all(&[CR, LF])?;
             }
-            print_file.write_all(&[b'\t'])?;
+            print_file.write_all(b"\t")?;
             print_file.write_all(chunk)?;
         }
 
