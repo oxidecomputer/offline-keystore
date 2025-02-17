@@ -111,7 +111,7 @@ enum Command {
     /// `ca initialize`, and `ca sign`.
     Ceremony {
         #[clap(long, env, default_value = INPUT_PATH)]
-        csr_spec: PathBuf,
+        spec: PathBuf,
 
         #[clap(long, env, default_value = INPUT_PATH)]
         key_spec: PathBuf,
@@ -155,8 +155,13 @@ enum CaCommand {
     /// Use the CA associated with the provided key spec to sign the
     /// provided CSR.
     Sign {
+        /// Path to a spec file describing the signing operation to execute.
+        /// If the path provided is a directory OKS will attempt to process
+        /// all of files in the directory that match a known spec file
+        /// suffix. This is currently limited to `*.csrspec.json` and
+        /// `*dcsrspec.json`.
         #[clap(long, env, default_value = INPUT_PATH)]
-        csr_spec: PathBuf,
+        spec: PathBuf,
     },
 }
 
@@ -341,7 +346,7 @@ fn get_new_passwd(hsm: Option<&mut Hsm>) -> Result<Zeroizing<String>> {
 /// Perform all operations that make up the ceremony for provisioning an
 /// offline keystore.
 fn do_ceremony<P: AsRef<Path>>(
-    csr_spec: P,
+    spec: P,
     key_spec: P,
     pkcs11_path: P,
     output: &SecretOutputArg,
@@ -439,7 +444,7 @@ fn do_ceremony<P: AsRef<Path>>(
     )?;
     sign_all(
         &cas,
-        csr_spec.as_ref(),
+        spec.as_ref(),
         &args.state,
         &args.output,
         args.transport,
@@ -731,11 +736,11 @@ fn main() -> Result<()> {
                     )?;
                     Ok(())
                 }
-                CaCommand::Sign { csr_spec } => {
+                CaCommand::Sign { spec } => {
                     let cas = load_all_ca(&args.state)?;
                     sign_all(
                         &cas,
-                        &csr_spec,
+                        &spec,
                         &args.state,
                         &args.output,
                         args.transport,
@@ -971,13 +976,13 @@ fn main() -> Result<()> {
             }
         }
         Command::Ceremony {
-            ref csr_spec,
+            ref spec,
             ref key_spec,
             ref pkcs11_path,
             ref secret_method,
             passwd_challenge,
         } => do_ceremony(
-            csr_spec,
+            spec,
             key_spec,
             pkcs11_path,
             secret_method,
