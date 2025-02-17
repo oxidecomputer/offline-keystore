@@ -106,32 +106,6 @@ enum Command {
         #[command(subcommand)]
         command: HsmCommand,
     },
-    /// Execute the OKS provisioning ceremony in a single command. This
-    /// is equivalent to executing `hsm initialize`, `hsm generate`,
-    /// `ca initialize`, and `ca sign`.
-    Ceremony {
-        #[clap(long, env, default_value = INPUT_PATH)]
-        spec: PathBuf,
-
-        #[clap(long, env, default_value = INPUT_PATH)]
-        key_spec: PathBuf,
-
-        /// Path to the YubiHSM PKCS#11 module
-        #[clap(
-            long,
-            env = "OKS_PKCS11_PATH",
-            default_value = "/usr/lib/pkcs11/yubihsm_pkcs11.so"
-        )]
-        pkcs11_path: PathBuf,
-
-        #[clap(flatten)]
-        secret_method: SecretOutputArg,
-
-        #[clap(long, env)]
-        /// Challenge the caller for a new password, don't generate a
-        /// random one for them.
-        passwd_challenge: bool,
-    },
 }
 
 #[derive(Subcommand, Debug, PartialEq)]
@@ -341,115 +315,6 @@ fn get_new_passwd(hsm: Option<&mut Hsm>) -> Result<Zeroizing<String>> {
     };
 
     Ok(passwd)
-}
-
-/// Perform all operations that make up the ceremony for provisioning an
-/// offline keystore.
-fn do_ceremony<P: AsRef<Path>>(
-    spec: P,
-    key_spec: P,
-    pkcs11_path: P,
-    output: &SecretOutputArg,
-    challenge: bool,
-    args: &Args,
-) -> Result<()> {
-    let passwd_new = {
-        // assume YubiHSM is in default state: use default auth credentials
-        let passwd = Zeroizing::new("password".to_string());
-        let mut hsm = Hsm::new(
-            1,
-            &passwd,
-            &args.output,
-            &args.state,
-            true,
-            args.transport,
-        )?;
-
-        let wrap = BackupKey::from_rng(&mut hsm)?;
-        let (shares, verifier) = wrap.split(&mut hsm)?;
-        let verifier = serde_json::to_string(&verifier)?;
-        debug!("JSON: {}", verifier);
-        let verifier_path = args.output.join(VERIFIER_PATH);
-        debug!(
-            "Serializing verifier as json to: {}",
-            verifier_path.display()
-        );
-
-        fs::write(verifier_path, verifier)?;
-
-        println!(
-            "\nWARNING: The wrap / backup key has been created and stored in the\n\
-            YubiHSM. It will now be split into {} key shares and each share\n\
-            will be individually output. Before each keyshare is\n\
-            printed, the operator will be prompted to ensure the appropriate key\n\
-            custodian is present in front of the printer.\n\n\
-            Press enter to begin the key share recording process ...",
-            LIMIT,
-        );
-
-        let secret_writer = secret_writer::get_writer(output)?;
-        for (i, share) in shares.as_ref().iter().enumerate() {
-            let share_num = i + 1;
-            println!(
-                "When key custodian {num} is ready, press enter to print share \
-                {num}",
-                num = share_num,
-            );
-            util::wait_for_line()?;
-
-            // we're iterating over &Share so we've gotta clone it to wrap it
-            // in a `Zeroize` like `share` expects
-            secret_writer.share(i, LIMIT, &Zeroizing::new(*share))?;
-            println!(
-                "When key custodian {} has collected their key share, press enter",
-                share_num,
-            );
-            util::wait_for_line()?;
-        }
-
-        hsm.import_backup_key(wrap)?;
-        info!("Collecting YubiHSM attestation cert.");
-        hsm.dump_attest_cert::<String>(None)?;
-
-        let passwd = if challenge {
-            get_new_passwd(None)?
-        } else {
-            get_new_passwd(Some(&mut hsm))?
-        };
-
-        secret_writer.password(&passwd)?;
-        hsm.replace_default_auth(&passwd)?;
-        passwd
-    };
-    {
-        // use new password to auth
-        let hsm = Hsm::new(
-            2,
-            &passwd_new,
-            &args.output,
-            &args.state,
-            true,
-            args.transport,
-        )?;
-        hsm.generate(key_spec.as_ref())?;
-    }
-
-    // for each key_spec in `key_spec` initialize Ca
-    let cas = initialize_all_ca(
-        key_spec.as_ref(),
-        pkcs11_path.as_ref(),
-        &args.state,
-        &args.output,
-        &passwd_new,
-    )?;
-    sign_all(
-        &cas,
-        spec.as_ref(),
-        &args.state,
-        &args.output,
-        args.transport,
-        &passwd_new,
-    )
 }
 
 pub fn initialize_all_ca<P: AsRef<Path>>(
@@ -975,19 +840,5 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Command::Ceremony {
-            ref spec,
-            ref key_spec,
-            ref pkcs11_path,
-            ref secret_method,
-            passwd_challenge,
-        } => do_ceremony(
-            spec,
-            key_spec,
-            pkcs11_path,
-            secret_method,
-            passwd_challenge,
-            &args,
-        ),
     }
 }
