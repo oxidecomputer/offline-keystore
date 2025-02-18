@@ -3,12 +3,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::{Context, Result};
-use clap::{builder::ArgPredicate, Args, ValueEnum};
+use clap::{Args, ValueEnum};
 use glob::Paths;
 use log::debug;
 use std::{
     env,
-    ffi::OsStr,
     io::{self, Read, Write},
     ops::Deref,
     path::{Path, PathBuf},
@@ -21,7 +20,7 @@ use crate::{
     util,
 };
 
-#[derive(ValueEnum, Copy, Clone, Debug, Default, PartialEq)]
+#[derive(ValueEnum, Copy, Clone, Debug, Default)]
 pub enum SecretInput {
     Cdr,
     Iso,
@@ -29,33 +28,12 @@ pub enum SecretInput {
     Stdio,
 }
 
-impl From<SecretInput> for ArgPredicate {
-    fn from(val: SecretInput) -> Self {
-        let rep = match val {
-            SecretInput::Cdr => SecretInput::Cdr.into(),
-            SecretInput::Iso => SecretInput::Iso.into(),
-            SecretInput::Stdio => SecretInput::Stdio.into(),
-        };
-        ArgPredicate::Equals(OsStr::new(rep).into())
-    }
-}
-
-impl From<SecretInput> for &str {
-    fn from(val: SecretInput) -> &'static str {
-        match val {
-            SecretInput::Cdr => "cdr",
-            SecretInput::Iso => "iso",
-            SecretInput::Stdio => "stdio",
-        }
-    }
-}
-
 // thread 'main' panicked at /home/flihp/.cargo/registry/src/index.crates.io-6f17d22bba15001f/clap_builder-4.5.18/src/builder/debug_asserts.rs:86:13:
 // Command change-auth: Argument names must be unique, but 'method' is in use by more than one argument or group
 // note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-#[derive(Args, Clone, Debug, Default, PartialEq)]
+#[derive(Args, Clone, Debug, Default)]
 pub struct AuthInputArg {
-    #[clap(long, env)]
+    #[clap(default_value_t, long, env, value_enum)]
     auth_method: SecretInput,
 
     #[clap(long, env)]
@@ -157,7 +135,7 @@ impl PasswordReader for CdrPasswordReader {
     }
 }
 
-#[derive(Args, Clone, Debug, Default, PartialEq)]
+#[derive(Args, Clone, Debug, Default)]
 pub struct ShareInputArg {
     #[clap(long = "share-method", env)]
     method: SecretInput,
