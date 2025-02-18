@@ -3,11 +3,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use anyhow::{Context, Result};
-use clap::{builder::ArgPredicate, Args, ValueEnum};
+use clap::{Args, ValueEnum};
 use hex::ToHex;
 use std::{
     env,
-    ffi::OsStr,
     fs::{File, OpenOptions},
     io::{self, Write},
     ops::Deref,
@@ -39,7 +38,7 @@ const LF: u8 = 0x0a;
 const FF: u8 = 0x0c;
 const CR: u8 = 0x0d;
 
-#[derive(ValueEnum, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(ValueEnum, Clone, Copy, Debug, Default)]
 pub enum SecretOutput {
     Cdw,
     Iso,
@@ -47,34 +46,13 @@ pub enum SecretOutput {
     Printer,
 }
 
-#[derive(Args, Clone, Debug, Default, PartialEq)]
+#[derive(Args, Clone, Debug, Default)]
 pub struct SecretOutputArg {
-    #[clap(long, env)]
+    #[clap(default_value_t, long, env, value_enum)]
     secret_method: SecretOutput,
 
     #[clap(long, env)]
     secret_device: Option<PathBuf>,
-}
-
-impl From<SecretOutput> for ArgPredicate {
-    fn from(val: SecretOutput) -> Self {
-        let rep = match val {
-            SecretOutput::Cdw => SecretOutput::Cdw.into(),
-            SecretOutput::Iso => SecretOutput::Iso.into(),
-            SecretOutput::Printer => SecretOutput::Printer.into(),
-        };
-        ArgPredicate::Equals(OsStr::new(rep).into())
-    }
-}
-
-impl From<SecretOutput> for &str {
-    fn from(val: SecretOutput) -> Self {
-        match val {
-            SecretOutput::Cdw => "cdw",
-            SecretOutput::Iso => "iso",
-            SecretOutput::Printer => "printer",
-        }
-    }
 }
 
 pub fn get_writer(output: &SecretOutputArg) -> Result<Box<dyn SecretWriter>> {

@@ -85,7 +85,7 @@ struct Args {
     command: Command,
 }
 
-#[derive(Subcommand, Debug, PartialEq)]
+#[derive(Subcommand, Debug)]
 enum Command {
     Ca {
         #[clap(flatten)]
@@ -165,7 +165,7 @@ enum CaCommand {
     },
 }
 
-#[derive(Subcommand, Clone, Debug, PartialEq)]
+#[derive(Subcommand, Clone, Debug)]
 #[clap(verbatim_doc_comment)]
 /// Commands for interacting with the YubiHSM2 during key ceremonies.
 /// Behavior of this command is influenced by the following environment
