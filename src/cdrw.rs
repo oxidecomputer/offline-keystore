@@ -185,7 +185,9 @@ impl CdWriter {
 
     pub fn write_share(&self, data: &Zeroizing<Share>) -> Result<()> {
         debug!("Writing share: {:?}", data.deref());
-        self.iso_writer.add("share", data.deref().as_ref())
+        let share = serde_json::to_string(data.deref())
+            .context("Serialize share to JSON")?;
+        self.iso_writer.add("share", share.as_bytes())
     }
 
     /// Burn data to CD & eject disk when done.

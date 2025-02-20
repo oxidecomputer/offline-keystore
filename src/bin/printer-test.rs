@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use hex::ToHex;
 use oks::{
     alphabet::Alphabet,
-    backup::Share,
+    backup,
     secret_writer::{PrinterSecretWriter, SecretWriter},
 };
 use rand::thread_rng;
@@ -52,10 +52,10 @@ fn main() -> Result<()> {
         } => {
             let share_data: Vec<u8> =
                 (0..data_len).map(|x| (x % 256) as u8).collect();
-            let share = Share::try_from(&share_data[..])?;
-            let share = Zeroizing::new(share);
+            let share_data = share_data.encode_hex::<String>();
 
-            println!("Data: {}", share_data.encode_hex::<String>());
+            println!("Data: {share_data}");
+            let share = backup::share_from_hex(&share_data)?;
 
             secret_writer.share(share_idx, share_count, &share)
         }
