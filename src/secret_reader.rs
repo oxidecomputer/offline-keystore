@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Args, ValueEnum};
 use glob::Paths;
 use log::debug;
@@ -11,11 +11,12 @@ use std::{
     io::{self, Read, Write},
     ops::Deref,
     path::{Path, PathBuf},
+    str,
 };
 use zeroize::Zeroizing;
 
 use crate::{
-    backup::{Share, Verifier},
+    backup::{self, Share, Verifier},
     cdrw::{CdReader, IsoReader},
     util,
 };
@@ -146,7 +147,7 @@ pub struct ShareInputArg {
 
 pub fn get_share_reader(
     input: &ShareInputArg,
-    verifier: Verifier,
+    verifier: Vec<Verifier>,
 ) -> Result<Box<dyn Iterator<Item = Result<Zeroizing<Share>>>>> {
     Ok(match input.method {
         SecretInput::Cdr => {
@@ -164,11 +165,11 @@ pub fn get_share_reader(
 // PasswordReaders because we need to create PasswordReaders in
 // situations when we don't have a reader.
 pub struct StdioShareReader {
-    verifier: Verifier,
+    verifier: Vec<Verifier>,
 }
 
 impl StdioShareReader {
-    pub fn new(verifier: Verifier) -> Self {
+    pub fn new(verifier: Vec<Verifier>) -> Self {
         Self { verifier }
     }
 }
@@ -231,29 +232,16 @@ impl Iterator for StdioShareReader {
                 }
             };
 
-            // drop all whitespace from line entered, interpret it as a
-            // hex string that we decode
-            let share: String =
-                share.chars().filter(|c| !c.is_whitespace()).collect();
-            let share_vec = match hex::decode(share) {
+            let share = match backup::share_from_hex(&share) {
                 Ok(share) => share,
                 Err(_) => {
                     println!(
-                        "Failed to decode Share. The value entered \
-                             isn't a valid hex string: try again."
+                        "Failed to convert the provided hex string into a \
+                        Share ... Press any key to try again",
                     );
-                    continue;
-                }
-            };
 
-            // construct a Share from the decoded hex string
-            let share = match Share::try_from(&share_vec[..]) {
-                Ok(share) => Zeroizing::new(share),
-                Err(_) => {
-                    println!(
-                        "Failed to convert share entered to the Share type.\n\
-                        The value entered is the wrong length ... try again."
-                    );
+                    // wait for a keypress / 1 byte from stdin
+                    let _ = io::stdin().read(&mut [0u8]).unwrap();
                     continue;
                 }
             };
@@ -272,7 +260,7 @@ impl Iterator for StdioShareReader {
 
 struct IsoShareReader {
     globs: Paths,
-    verifier: Verifier,
+    verifier: Vec<Verifier>,
 }
 
 const SHARE_ISO_GLOB: &str = "share_*-of-*.iso";
@@ -280,7 +268,7 @@ const SHARE_ISO_GLOB: &str = "share_*-of-*.iso";
 impl IsoShareReader {
     pub fn new<P: AsRef<Path>>(
         dir: Option<P>,
-        verifier: Verifier,
+        verifier: Vec<Verifier>,
     ) -> Result<Self> {
         let dir = match dir {
             None => env::current_dir().context("Failed to get PWD")?,
@@ -321,9 +309,21 @@ impl Iterator for IsoShareReader {
             Ok(s) => s,
         };
 
-        let share = match Share::try_from(&share[..]) {
+        let share = match str::from_utf8(&share) {
+            Ok(v) => v,
+            Err(e) => {
+                return Some(Err(anyhow!("Invalid UTF-8 sequence: {}", e)))
+            }
+        };
+
+        let share: Zeroizing<Share> = match serde_json::from_str(share) {
             Ok(s) => Zeroizing::new(s),
-            Err(e) => return Some(Err(e.into())),
+            Err(e) => {
+                return Some(Err(anyhow!(
+                    "Failed to deserialize share from JSON: {}",
+                    e
+                )));
+            }
         };
 
         match verify(&self.verifier, &share) {
@@ -341,11 +341,11 @@ impl Iterator for IsoShareReader {
 
 pub struct CdrShareReader {
     cdr: CdReader,
-    verifier: Verifier,
+    verifier: Vec<Verifier>,
 }
 
 impl CdrShareReader {
-    pub fn new(cdr: CdReader, verifier: Verifier) -> Self {
+    pub fn new(cdr: CdReader, verifier: Vec<Verifier>) -> Self {
         Self { cdr, verifier }
     }
 }
@@ -379,9 +379,21 @@ impl Iterator for CdrShareReader {
         };
         println!("\nOK");
 
-        let share = match Share::try_from(share.deref()) {
+        let share = match str::from_utf8(&share) {
+            Ok(v) => v,
+            Err(e) => {
+                return Some(Err(anyhow!("Invalid UTF-8 sequence: {}", e)))
+            }
+        };
+
+        let share: Zeroizing<Share> = match serde_json::from_str(share) {
             Ok(s) => Zeroizing::new(s),
-            Err(e) => return Some(Err(e.into())),
+            Err(e) => {
+                return Some(Err(anyhow!(
+                    "Failed to deserialize share from JSON: {}",
+                    e
+                )));
+            }
         };
 
         match verify(&self.verifier, &share) {
@@ -397,24 +409,31 @@ impl Iterator for CdrShareReader {
     }
 }
 
-fn verify(verifier: &Verifier, share: &Zeroizing<Share>) -> Result<bool> {
-    if verifier.verify(share.deref()) {
-        print!("\nShare verified!\n\nPress any key to continue ...");
-        io::stdout().flush()?;
+fn verify(verifier: &Vec<Verifier>, share: &Zeroizing<Share>) -> Result<bool> {
+    use vsss_rs::FeldmanVerifierSet;
 
-        // wait for a keypress / 1 byte from stdin
-        let _ = io::stdin().read(&mut [0u8]).unwrap();
-        print!("\x1B[2J\x1B[1;1H");
-        Ok(true)
-    } else {
-        print!(
-            "\nFailed to verify share :(\n\nPress any key to \
-            try again ..."
-        );
-        io::stdout().flush()?;
+    let res = match verifier.verify_share(share.deref()) {
+        Ok(_) => {
+            print!("\nShare verified!\n\nPress any key to continue ...");
+            io::stdout().flush()?;
 
-        // wait for a keypress / 1 byte from stdin
-        let _ = io::stdin().read(&mut [0u8]).unwrap();
-        Ok(false)
-    }
+            // wait for a keypress / 1 byte from stdin
+            let _ = io::stdin().read(&mut [0u8]).unwrap();
+            print!("\x1B[2J\x1B[1;1H");
+            true
+        }
+        Err(_) => {
+            print!(
+                "\nFailed to verify share :(\n\nPress any key to \
+                try again ..."
+            );
+            io::stdout().flush()?;
+
+            // wait for a keypress / 1 byte from stdin
+            let _ = io::stdin().read(&mut [0u8]).unwrap();
+            false
+        }
+    };
+
+    Ok(res)
 }
