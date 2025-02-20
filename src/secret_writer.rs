@@ -4,7 +4,6 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
-use hex::ToHex;
 use std::{
     env,
     fs::{File, OpenOptions},
@@ -15,7 +14,7 @@ use std::{
 use zeroize::Zeroizing;
 
 use crate::{
-    backup::Share,
+    backup::{self, Share},
     cdrw::{CdWriter, IsoWriter},
     util,
 };
@@ -189,12 +188,8 @@ impl SecretWriter for PrinterSecretWriter {
             0, // Set horizontal tab stops
         ])?;
 
-        for (i, chunk) in share
-            .encode_hex::<String>()
-            .as_bytes()
-            .chunks(8)
-            .enumerate()
-        {
+        let share_hex = backup::share_to_hex(share)?;
+        for (i, chunk) in share_hex.as_bytes().chunks(8).enumerate() {
             if i % 4 == 0 {
                 print_file.write_all(&[CR, LF])?;
             }
@@ -279,7 +274,9 @@ impl SecretWriter for IsoSecretWriter {
     ) -> Result<()> {
         let writer = IsoWriter::new()?;
 
-        writer.add("share", share.as_ref())?;
+        let json =
+            serde_json::to_string(share.deref()).context("Share to JSON")?;
+        writer.add("share", json.as_bytes())?;
         writer.to_iso(
             self.output_dir
                 .join(format!("share_{index}-of-{limit}.iso")),
