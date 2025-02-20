@@ -220,7 +220,7 @@ enum HsmCommand {
         #[clap(flatten)]
         share_method: ShareInputArg,
 
-        #[clap(long, env, default_value = "/usr/share/oks/verifier.json")]
+        #[clap(long, env, default_value = VERIFIER_PATH)]
         verifier: PathBuf,
     },
 
