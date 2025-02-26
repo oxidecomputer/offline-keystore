@@ -4,6 +4,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
+use const_format::formatcp;
 use env_logger::Builder;
 use log::{debug, error, info, LevelFilter};
 use std::{
@@ -12,7 +13,7 @@ use std::{
     ffi::OsStr,
     fs,
     ops::{Deref, DerefMut},
-    path::{Path, PathBuf},
+    path::{Path, PathBuf, MAIN_SEPARATOR},
     str::FromStr,
 };
 use yubihsm::object::{Id, Type};
@@ -39,7 +40,9 @@ const PASSWD_NEW: &str = "Enter new password: ";
 const PASSWD_NEW_2: &str = "Enter password again to confirm: ";
 
 const INPUT_PATH: &str = "/usr/share/oks";
-const VERIFIER_PATH: &str = "/usr/share/oks/verifier.json";
+const VERIFIER_FILE: &str = "verifier.json";
+const VERIFIER_PATH: &str =
+    formatcp!("{}{}{}", INPUT_PATH, MAIN_SEPARATOR, VERIFIER_FILE);
 
 const OUTPUT_PATH: &str = "/var/lib/oks";
 const STATE_PATH: &str = "/var/lib/oks/ca-state";
@@ -639,7 +642,7 @@ fn main() -> Result<()> {
                     let (shares, verifier) = wrap.split(&mut hsm)?;
                     let verifier = serde_json::to_string(&verifier)?;
                     debug!("JSON: {}", verifier);
-                    let verifier_path = args.output.join(VERIFIER_PATH);
+                    let verifier_path = args.output.join(VERIFIER_FILE);
                     debug!(
                         "Serializing verifier as json to: {}",
                         verifier_path.display()
