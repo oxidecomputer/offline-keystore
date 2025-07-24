@@ -282,7 +282,7 @@ impl SecretWriter for IsoSecretWriter {
         writer.add("share", share.as_ref())?;
         writer.to_iso(
             self.output_dir
-                .join(format!("share_{}-of-{}.iso", index, limit)),
+                .join(format!("share_{index}-of-{limit}.iso")),
         )
     }
 }

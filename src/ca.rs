@@ -234,7 +234,7 @@ impl DacStore {
     fn pubkey_to_dcsr_path(&self, pubkey: &RsaPublicKey) -> Result<PathBuf> {
         let digest = Self::pubkey_to_digest(pubkey)?;
 
-        Ok(self.root.as_path().join(format!("{}.{}", digest, DCSR_EXT)))
+        Ok(self.root.as_path().join(format!("{digest}.{DCSR_EXT}")))
     }
 
     pub fn new<P: AsRef<Path>>(root: P) -> Result<Self> {
@@ -382,7 +382,7 @@ impl Ca {
             .arg("-key")
             .arg(format!("0:{:04x}", spec.id))
             .arg("-passin")
-            .arg(format!("env:{}", ENV_CA_PASSWORD))
+            .arg(format!("env:{ENV_CA_PASSWORD}"))
             .arg("-out")
             .arg(csr.path());
 
@@ -526,7 +526,7 @@ impl Ca {
             .arg("-extensions")
             .arg(purpose.to_string())
             .arg("-passin")
-            .arg(format!("env:{}", ENV_CA_PASSWORD))
+            .arg(format!("env:{ENV_CA_PASSWORD}"))
             .arg("-in")
             .arg(csr.path())
             .arg("-out")
@@ -654,7 +654,7 @@ fn bootstrap_ca_dir<P: AsRef<Path>>(
     // create directories expected by `openssl ca`
     for dir in ["crl", "newcerts", "csr", "private"] {
         fs::create_dir(dir)
-            .with_context(|| format!("Failed to create directory: {}", dir))?;
+            .with_context(|| format!("Failed to create directory: {dir}"))?;
         if dir == "private" {
             let perms = Permissions::from_mode(0o700);
             debug!("setting permissions on directory {} to {:#?}", dir, perms);

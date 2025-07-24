@@ -148,7 +148,7 @@ fn main() -> Result<()> {
             AuditCommand::Lock => Ok(oks::hsm::audit_lock(&client)?),
             AuditCommand::Query => {
                 let state = client.get_force_audit_option()?;
-                println!("{:?}", state);
+                println!("{state:?}");
                 Ok(())
             }
             AuditCommand::Log { command } => match command {
