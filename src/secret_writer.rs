@@ -163,7 +163,7 @@ impl SecretWriter for PrinterSecretWriter {
             if i % 4 == 0 {
                 print_file.write_all(&[CR, LF])?;
             }
-            print_file.write_all(&[b'\t'])?;
+            print_file.write_all(b"\t")?;
             print_file.write_all(chunk)?;
         }
 
@@ -220,7 +220,7 @@ impl SecretWriter for PrinterSecretWriter {
             if i % 4 == 0 {
                 print_file.write_all(&[CR, LF])?;
             }
-            print_file.write_all(&[b'\t'])?;
+            print_file.write_all(b"\t")?;
             print_file.write_all(chunk)?;
         }
 
@@ -304,7 +304,7 @@ impl SecretWriter for IsoSecretWriter {
         writer.add("share", share.as_ref())?;
         writer.to_iso(
             self.output_dir
-                .join(format!("share_{}-of-{}.iso", index, limit)),
+                .join(format!("share_{index}-of-{limit}.iso")),
         )
     }
 }

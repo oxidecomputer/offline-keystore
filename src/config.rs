@@ -180,7 +180,7 @@ impl Display for Purpose {
             Purpose::RoTDevelopmentCodeSigning => "v3_code_signing_dev",
             Purpose::Identity => "v3_identity",
         };
-        write!(f, "{}", str)
+        write!(f, "{str}")
     }
 }
 

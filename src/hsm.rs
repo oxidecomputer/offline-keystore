@@ -123,7 +123,8 @@ impl Hsm {
         );
 
         info!("Storing wrap key in YubiHSM.");
-        let id = self.client
+        let id = self
+            .client
             .put_wrap_key(
                 ID,
                 Label::from_bytes(LABEL.as_bytes())?,
@@ -135,8 +136,8 @@ impl Hsm {
             )
             .with_context(|| {
                 format!(
-                    "Failed to put wrap key into YubiHSM domains {:?} with id {}",
-                    DOMAIN, ID
+                    "Failed to put wrap key into YubiHSM domains {DOMAIN:?} \
+                    with id {ID}"
                 )
             })?;
         debug!("wrap id: {}", id);
@@ -213,7 +214,7 @@ impl Hsm {
         self.client
             .delete_object(AUTH_ID, Type::AuthenticationKey)
             .with_context(|| {
-                format!("Delete authentication key object w/ id {}", AUTH_ID)
+                format!("Delete authentication key object w/ id {AUTH_ID}")
             })?;
 
         Ok(())
@@ -418,7 +419,7 @@ pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
 
 pub fn dump_info(client: &Client) -> Result<()> {
     let info = client.device_info()?;
-    println!("{:#?}", info);
+    println!("{info:#?}");
     Ok(())
 }
 

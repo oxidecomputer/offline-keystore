@@ -63,7 +63,7 @@ impl Alphabet {
         for i in 0..length {
             let char = loop {
                 rng.try_fill_bytes(&mut byte).with_context(|| {
-                    format!("failed to get byte {} for password", i)
+                    format!("failed to get byte {i} for password")
                 })?;
 
                 if let Some(char) = self.get_char(byte[0]) {

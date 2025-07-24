@@ -539,7 +539,7 @@ fn bootstrap_ca_dir<P: AsRef<Path>>(
     // create directories expected by `openssl ca`
     for dir in ["crl", "newcerts", "csr", "private"] {
         fs::create_dir(dir)
-            .with_context(|| format!("Failed to create directory: {}", dir))?;
+            .with_context(|| format!("Failed to create directory: {dir}"))?;
         if dir == "private" {
             let perms = Permissions::from_mode(0o700);
             debug!("setting permissions on directory {} to {:#?}", dir, perms);

@@ -128,7 +128,7 @@ impl CdReader {
     pub fn eject(&self) -> Result<()> {
         let mut cmd = Command::new("eject");
         let output = cmd.arg(&self.device).output().with_context(|| {
-            format!("failed to run the \"eject\" command: \"{:?}\"", cmd)
+            format!("failed to run the \"eject\" command: \"{cmd:?}\"")
         })?;
 
         if output.status.success() {

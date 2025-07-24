@@ -224,9 +224,8 @@ impl Iterator for StdioShareReader {
                 },
                 Err(e) => {
                     print!(
-                        "Error from `Stdin::read_line`: {}\n\n\
-                        Press any key to try again ...",
-                        e
+                        "Error from `Stdin::read_line`: {e}\n\n\
+                        Press any key to try again ..."
                     );
                     match io::stdout().flush() {
                         Ok(_) => (),
@@ -300,7 +299,7 @@ impl IsoShareReader {
                 .to_str()
                 .context("path can't be represented as an str")?,
         )
-        .context(format!("Invalid Glob: {}", SHARE_ISO_GLOB))?;
+        .context(format!("Invalid Glob: {SHARE_ISO_GLOB}"))?;
 
         Ok(Self { globs, verifier })
     }
