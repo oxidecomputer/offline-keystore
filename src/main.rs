@@ -557,7 +557,7 @@ pub fn sign_all<P: AsRef<Path>>(
         };
 
         let path =
-            PathBuf::from(out.as_ref()).join(format!("{}.{}", prefix, suffix));
+            PathBuf::from(out.as_ref()).join(format!("{prefix}.{suffix}"));
         debug!("writing credential to: {}", path.display());
         std::fs::write(path, &data)?;
     }
@@ -652,12 +652,11 @@ fn main() -> Result<()> {
 
                     println!(
                         "\nWARNING: The wrap / backup key has been created and stored in the\n\
-                        YubiHSM. It will now be split into {} key shares and each share\n\
+                        YubiHSM. It will now be split into {LIMIT} key shares and each share\n\
                         will be individually exported. Before each keyshare is printed,\n\
                         the operator will be prompted to ensure the appropriate key\n\
                         custodian is present in front of the printer.\n\n\
-                        Press enter to begin the key share recording process ...",
-                        LIMIT,
+                        Press enter to begin the key share recording process ..."
                     );
 
                     let secret_writer =
@@ -665,9 +664,8 @@ fn main() -> Result<()> {
                     for (i, share) in shares.as_ref().iter().enumerate() {
                         let share_num = i + 1;
                         println!(
-                            "When key custodian {num} is ready, press enter to print share \
-                            {num}",
-                            num = share_num,
+                            "When key custodian {share_num} is ready, press \
+                            enter to print share {share_num}"
                         );
                         util::wait_for_line()?;
 
@@ -680,8 +678,8 @@ fn main() -> Result<()> {
                             &Zeroizing::new(*share),
                         )?;
                         println!(
-                            "When key custodian {} has collected their key share, press enter",
-                            share_num,
+                            "When key custodian {share_num} has collected \
+                            their key share, press enter"
                         );
                         util::wait_for_line()?;
                     }

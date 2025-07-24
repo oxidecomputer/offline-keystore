@@ -361,7 +361,7 @@ fn unmount<P: AsRef<Path>>(mount_point: P) -> Result<()> {
 pub fn eject<P: AsRef<Path>>(device: P) -> Result<()> {
     let mut cmd = Command::new("eject");
     let output = cmd.arg(device.as_ref()).output().with_context(|| {
-        format!("failed to run the \"eject\" command: \"{:?}\"", cmd)
+        format!("failed to run the \"eject\" command: \"{cmd:?}\"")
     })?;
 
     debug!("execting command: {:?}", cmd);

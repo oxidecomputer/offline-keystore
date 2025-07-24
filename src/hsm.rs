@@ -123,7 +123,8 @@ impl Hsm {
         );
 
         info!("Storing wrap key in YubiHSM.");
-        let id = self.client
+        let id = self
+            .client
             .put_wrap_key(
                 ID,
                 Label::from_bytes(LABEL.as_bytes())?,
@@ -135,8 +136,8 @@ impl Hsm {
             )
             .with_context(|| {
                 format!(
-                    "Failed to put wrap key into YubiHSM domains {:?} with id {}",
-                    DOMAIN, ID
+                    "Failed to put wrap key into YubiHSM domains {DOMAIN:?} \
+                    with id {ID}"
                 )
             })?;
         debug!("wrap id: {}", id);
@@ -210,7 +211,7 @@ impl Hsm {
                 authentication::Algorithm::default(), // can't be used in const
                 auth_key,
             )
-            .with_context(|| format!("Putting auth key w/ Id: {}", auth_id))?;
+            .with_context(|| format!("Putting auth key w/ Id: {auth_id}"))?;
 
         // backup the auth key
         if self.backup {
@@ -220,7 +221,7 @@ impl Hsm {
                 Type::AuthenticationKey,
                 &self.out_dir,
             )
-            .with_context(|| format!("Backup object w/ id: {}", auth_id))?;
+            .with_context(|| format!("Backup object w/ id: {auth_id}"))?;
         }
 
         Ok(())
@@ -230,7 +231,7 @@ impl Hsm {
         info!("Deleting default auth key w/ Id: {}.", auth_id);
         self.client
             .delete_object(auth_id, Type::AuthenticationKey)
-            .with_context(|| format!("Delete auth key with Id: {}", auth_id))?;
+            .with_context(|| format!("Delete auth key with Id: {auth_id}"))?;
 
         Ok(())
     }
@@ -434,7 +435,7 @@ pub fn restore<P: AsRef<Path>>(client: &Client, file: P) -> Result<()> {
 
 pub fn dump_info(client: &Client) -> Result<()> {
     let info = client.device_info()?;
-    println!("{:#?}", info);
+    println!("{info:#?}");
     Ok(())
 }
 
