@@ -36,5 +36,5 @@ zeroize_derive = "1.4.2"
 glob = "0.3.2"
 rsa = "0.9.8"
 sha2 = "0.10.9"
-zerocopy = { version = "0.8.17", features = ["derive", "std", "zerocopy-derive"] }
+zerocopy = { version = "0.8.26", features = ["derive", "std", "zerocopy-derive"] }
 const_format = "0.2.34"
