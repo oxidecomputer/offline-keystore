@@ -199,6 +199,16 @@ impl TryFrom<&KeySpec> for OksKeySpec {
     type Error = anyhow::Error;
 
     fn try_from(spec: &KeySpec) -> Result<Self, Self::Error> {
+        let sn_bytes = spec.initial_serial_number.to_bytes_be();
+        if sn_bytes.len() > 20 {
+            return Err(anyhow::anyhow!(
+                "initial serial number is greater than 20 bytes"
+            ));
+        }
+
+        let mut initial_serial_number = [0u8; 20];
+        initial_serial_number[..sn_bytes.len()].copy_from_slice(&sn_bytes);
+
         Ok(OksKeySpec {
             common_name: spec.common_name.clone(),
             id: spec.id,
@@ -208,19 +218,7 @@ impl TryFrom<&KeySpec> for OksKeySpec {
             hash: spec.hash,
             label: spec.label.clone().try_into()?,
             purpose: spec.purpose,
-            initial_serial_number: match spec
-                .initial_serial_number
-                .to_bytes_be()
-                .try_into()
-            {
-                Ok(sn) => sn,
-                Err(v) => {
-                    return Err(anyhow::anyhow!(
-                        "Expected array of 20 bytes, got {}",
-                        v.len()
-                    ));
-                }
-            },
+            initial_serial_number,
             self_signed: spec.self_signed,
         })
     }
