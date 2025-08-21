@@ -595,7 +595,8 @@ impl Ca {
 
         // Get public key from the cert of the Ca signing the Dcsr (self).
         let cert = self.cert()?;
-        let signer_public_key = lpc55_sign::cert::public_key(&cert)?;
+        let signer_public_key = lpc55_sign::cert::public_key(&cert)
+            .context("Extracting RSA public key from DAC CA cert")?;
 
         // lpc55_sign ergonomics
         let debug_public_key = spec.dcsr.debug_public_key.clone();
@@ -604,10 +605,13 @@ impl Ca {
             certs,
             signer_public_key,
             spec.dcsr,
-        )?;
+        )
+        .context("Generating DAC TBS block")?;
 
         // Sign it using the private key stored in the HSM.
-        let dc_sig = client.sign_rsa_pkcs1v15_sha256(self.spec.id, &dc_tbs)?;
+        let dc_sig = client
+            .sign_rsa_pkcs1v15_sha256(self.spec.id, &dc_tbs)
+            .context("Signing DAC TBS block")?;
 
         // Append the signature to the TBS debug credential to make a complete debug
         // credential
