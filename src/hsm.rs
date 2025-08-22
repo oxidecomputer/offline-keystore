@@ -76,7 +76,7 @@ impl Hsm {
     // NOTE: RSA key generation takes a lot of time on the YubiHSM. It's also
     // highly viariable: in practice we've seen RSA4K key generation take
     // anywhere from less than 1 minute to over 5 minutes.
-    const TIMEOUT_MS: u64 = 300000;
+    const TIMEOUT_MS: u64 = u64::MAX;
 
     pub fn new(
         auth_id: Id,

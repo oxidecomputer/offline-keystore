@@ -51,12 +51,10 @@ pub enum CaError {
     BadPurpose,
     #[error("path not a directory")]
     BadSpecDirectory,
-    #[error("failed to generate certificate")]
-    CertGenFail,
-    #[error("failed to create self signed cert for key")]
-    SelfCertGenFail,
     #[error("CA state directory has no key.spec")]
     NoKeySpec,
+    #[error("openssl command failed")]
+    OpensslCmdFail,
 }
 
 // This is a template for the openssl config file used for all CAs.
@@ -386,20 +384,9 @@ impl Ca {
             .arg("-out")
             .arg(csr.path());
 
-        debug!("executing command: \"{:#?}\"", cmd);
-        let output = match cmd.output() {
-            Ok(o) => o,
-            Err(e) => {
-                teardown_warn_only(connector, pwd);
-                return Err(e.into());
-            }
-        };
-
-        if !output.status.success() {
-            warn!("command failed with status: {}", output.status);
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        if let Err(e) = execute_command(&mut cmd) {
             teardown_warn_only(connector, pwd);
-            return Err(CaError::SelfCertGenFail.into());
+            return Err(e);
         }
 
         // return the path to the artifact created
@@ -408,9 +395,6 @@ impl Ca {
         // else we'll get back the path to the CSR so that it can be exported
         // and eventually certified by some external process
         let pem = if spec.self_signed {
-            // sleep to let sessions cycle
-            thread::sleep(Duration::from_millis(1500));
-
             info!("Generating self-signed cert for CA root");
             let mut cmd = Command::new("openssl");
             cmd.arg("ca")
@@ -432,29 +416,11 @@ impl Ca {
                 .arg("-in")
                 .arg(csr.path())
                 .arg("-out")
-                .arg(CA_CERT)
-                .output()?;
+                .arg(CA_CERT);
 
-            debug!("executing command: \"{:#?}\"", cmd);
-            let output = match cmd
-                .output()
-                .context("Failed to self sign cert with `openssl ca`")
-            {
-                Ok(o) => o,
-                Err(e) => {
-                    teardown_warn_only(connector, pwd);
-                    return Err(e);
-                }
-            };
-
-            if !output.status.success() {
-                warn!("command failed with status: {}", output.status);
-                warn!(
-                    "stderr: \"{}\"",
-                    String::from_utf8_lossy(&output.stderr)
-                );
+            if let Err(e) = execute_command(&mut cmd) {
                 teardown_warn_only(connector, pwd);
-                return Err(CaError::SelfCertGenFail.into());
+                return Err(e);
             }
 
             let cert_pem =
@@ -498,9 +464,6 @@ impl Ca {
         debug!("writing CSR to: {}", csr.path().display());
         fs::write(&csr, &spec.csr)?;
 
-        // sleep to let sessions cycle
-        thread::sleep(Duration::from_millis(2500));
-
         info!(
             "Generating cert from CSR & signing with key: {}",
             self.name()
@@ -532,27 +495,16 @@ impl Ca {
             .arg("-out")
             .arg(cert.path());
 
-        debug!("executing command: \"{:#?}\"", cmd);
-        let output = match cmd.output() {
-            Ok(o) => o,
-            Err(e) => {
-                teardown_warn_only(connector, pwd);
-                return Err(e.into());
-            }
-        };
-
-        if !output.status.success() {
-            warn!("command failed with status: {}", output.status);
-            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+        if let Err(e) = execute_command(&mut cmd) {
             teardown_warn_only(connector, pwd);
-            return Err(CaError::CertGenFail.into());
-        } else {
-            debug!(
-                "Successfully signed CsrSpec \"{}\" producing cert \"{}\"",
-                csr.path().display(),
-                cert.path().display()
-            );
+            return Err(e);
         }
+
+        debug!(
+            "Successfully signed CsrSpec \"{}\" producing cert \"{}\"",
+            csr.path().display(),
+            cert.path().display()
+        );
 
         teardown_warn_only(connector, pwd);
         fs::read(cert.path()).with_context(|| {
@@ -714,4 +666,48 @@ fn teardown_warn_only<P: AsRef<Path>>(mut conn: Child, ret_path: P) {
             e
         );
     }
+}
+
+const RETRY_MAX: usize = 7;
+const RETRY_SLEEP: u64 = 5000;
+const ALWAYS_SLEEP: u64 = 2000;
+
+/// Execute a command with sleep / retry logic specifically tuned for this
+/// use-case. The YubiHSM supports 16 sessions. Unused sessions are reclaimed
+/// after 30 seconds of inactivity. For whatever reason using the YubiHSM as a
+/// backend for openssl through the pkcs#11 provider causes session exhaustion.
+/// Likely someone isn't cleaning up after themselves. To work around this we
+/// do two things:
+/// - Before executing any openssl command we sleep for 2 seconds. This is
+///   intended to keep us from using up all of the available sessions rapidly.
+/// - Implement a retry loop as a last line of defense that will run out the
+///   session clock in its entirety if necessary.
+fn execute_command(cmd: &mut Command) -> Result<()> {
+    for retry in 0..RETRY_MAX {
+        debug!("attempt {retry} at executing command: \"{:#?}\"", cmd);
+        let output = cmd
+            .output()
+            .with_context(|| format!("failed to execute command: {cmd:?}"))?;
+
+        if output.status.success() {
+            debug!("command executed successfully");
+            // Sleep unconditionally after success to run down the session
+            // reclamation timer on the YubiHSM a bit.
+            thread::sleep(Duration::from_millis(ALWAYS_SLEEP));
+            break;
+        } else {
+            // sleep & retry on any failure
+            warn!("command failed with status: {}", output.status);
+            warn!("stderr: \"{}\"", String::from_utf8_lossy(&output.stderr));
+            if retry == RETRY_MAX - 1 {
+                error!("giving up after {RETRY_MAX} attempts");
+                return Err(CaError::OpensslCmdFail.into());
+            }
+
+            info!("attempt {retry} failed, waiting before retrying ...");
+            thread::sleep(Duration::from_millis(RETRY_SLEEP));
+        }
+    }
+
+    Ok(())
 }
