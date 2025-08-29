@@ -6,6 +6,35 @@ set -euo pipefail
 
 . oks-lib.sh
 
+print_usage ()
+{
+    cat <<END
+USAGE:
+    "${0##*/}" <CDROM>
+
+<CDROM> - path to CDROM device (default: $CD_DEV)
+END
+}
+
+while test $# -gt 0; do
+    case $1 in
+        -h|--help) print_usage; exit $?;;
+        --) shift; break;;
+        -*) usage_error "invalid option: '$1'";;
+        *) break;
+    esac
+    shift
+done
+
+if [ $# -eq 1 ]; then
+    CD_DEV="$1"
+fi
+
+if [ $# -gt 1 ]; then
+    >&2 echo "unepected positional parameters"
+    exit 1
+fi
+
 TMP_DIR=$(mktemp --directory)
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 
