@@ -22,28 +22,11 @@ sed -i "s/SN_GOES_HERE/$PRINTER_SN/g" /etc/cups/printers.conf
 systemctl start cups.service
 info "Label printer with SN: $PRINTER_SN configured"
 
-while read -rsp "Enter password: " OKS_PASSWORD; do
-    export OKS_PASSWORD
+info "Generating keys from keyspecs ..."
+oks hsm generate --auth-method cdr
 
-    if ! oks hsm --auth-id 2 serial-number --auth-method stdio > /dev/null 2>&1; then
-        echo "incorrect password, please try again ..."
-    else
-        echo -e "success!"
+info "Initializing CAs for keyspecs ..."
+oks ca --auth-method cdr initialize
 
-        read -rsp "Press the \"Enter\" key to begin the ceremony:"
-        echo ""
-        break
-    fi
-done
-
-# challenge operator for YubiHSM password over stdio change the auth
-# value to a new randomly generated one export the new password to CDW
-info "Changing OKS auth value: auth from STDIO, output to CDW"
-oks hsm change-auth --auth-method stdio --secret-method cdw
-
-unset OKS_PASSWORD
-
-# sign the input requests from /usr/share/oks using the CD for
-# authentication
-info "Signing requests: auth from CDW"
+info "Signing requests intermediates & debug auth credentials"
 oks ca --auth-method cdr sign
