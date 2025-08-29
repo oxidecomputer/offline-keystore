@@ -34,6 +34,12 @@ ISO_HASH=$(
 )
 info "ISO has sha256 digest:\n$ISO_HASH"
 
+if lpstat -p ql-600 > /dev/null; then
+    lp -o PageSize=62x29mm <<< "$ISO_HASH" > /dev/null
+else
+    info "no printer found, the digest must be transcribed manually"
+fi
+
 # cdrecord is noisy on both stdio and stderr. We can't redirect stderr while
 # using 'fail_with_msg' so we do it manually.
 info "writing ISO to device: \"$CD_DEV\""
