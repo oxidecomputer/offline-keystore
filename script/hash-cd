@@ -16,9 +16,11 @@ USAGE:
 END
 }
 
+PRINT=true
 while test $# -gt 0; do
     case $1 in
         -h|--help) print_usage; exit $?;;
+        -n|--no-print) PRINT=false;;
         --) shift; break;;
         -*) usage_error "invalid option: '$1'";;
         *) break;
@@ -47,7 +49,7 @@ HASH=$(
 )
 info "CD in \"$CD_DEV\" has sha256 digest:\n$HASH"
 
-if lpstat -p ql-600 > /dev/null; then
+if [ "$PRINT" == "true" ] && lpstat -p ql-600 > /dev/null; then
     lp -o PageSize=62x29mm <<< "$HASH" > /dev/null
 else
     info "no printer found, the digest must be transcribed manually"
