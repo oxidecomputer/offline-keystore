@@ -14,7 +14,7 @@ fi
 info "Starting terminal session recording."
 script \
     --timing="$OUTPUT"/script-timing.log \
-    --command "hash-cd && $CEREMONY_SCRIPT" \
+    --command "hash-cd --no-print && $CEREMONY_SCRIPT" \
     "$OUTPUT"/script.log
 
 info "Script session ended"
