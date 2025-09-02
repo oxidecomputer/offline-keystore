@@ -28,7 +28,7 @@ echo -ne "\n"
 wait_for_cd
 write-output
 
-echo -e "\nOutput written to CDW. The ceremony is now compplete."
+echo -e "\nOutput written to CDW. The ceremony is now complete."
 echo -n "Press any key to poweroff:"
 wait_for_key_press
 
