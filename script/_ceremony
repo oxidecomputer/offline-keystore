@@ -4,10 +4,25 @@ set -eou pipefail
 
 . oks-lib.sh
 
+command_on_path blockdev
 command_on_path lpinfo
 command_on_path systemctl
 command_on_path sed
 command_on_path oks
+
+eject "$CD_DEV"
+echo -e "\nInsert OKS HSM Auth CD, close drive tray,"
+read -p "then press Enter to continue..."
+COUNT=5
+while [ $COUNT -gt 0 ]; do
+    if ! blockdev --getsize64 "$CD_DEV" >/dev/null 2>&1; then
+        COUNT=$(($COUNT-1))
+        echo "Waiting for CD drive to \"settle\""
+        sleep 10
+    else
+        break
+    fi
+done
 
 # NixOS generates `printers.conf` for us but we can't know the printers SN in
 # advance of the first ceremony where it's used. As a work-around we query cups
