@@ -134,6 +134,28 @@ impl CdReader {
         eject(&self.device)
     }
 
+    pub fn is_cd_present(&self) -> Result<bool> {
+        let mut cmd = Command::new("blockdev");
+        let cmd = cmd.arg("--getsize64").arg(&self.device);
+
+        debug!("execting command: {:?}", cmd);
+        let output = cmd
+            .output()
+            .context("faild to execute blockdev, check PATH")?;
+
+        if output.status.success() {
+            debug!("disk detected in drive, continuing");
+            Ok(true)
+        } else {
+            debug!("no disk in drive");
+            Ok(false)
+        }
+    }
+
+    pub fn wait_for_media(&self) -> Result<()> {
+        wait_for_media(&self.device)
+    }
+
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         let tmpdir = tempdir()?;
 
