@@ -5,7 +5,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, ValueEnum};
 use glob::Paths;
-use log::debug;
+use log::{debug, info};
 use std::{
     env,
     io::{self, Read, Write},
@@ -111,29 +111,48 @@ impl CdrPasswordReader {
 
 impl PasswordReader for CdrPasswordReader {
     fn read(&mut self, _prompt: &str) -> Result<Zeroizing<String>> {
-        match self.cdr.eject() {
-            Ok(()) => (),
-            Err(e) => return Err(e),
-        }
-
-        print!(
-            "Place authentication CD in the drive, close the drive, then press \n\
-               the \"Enter\" key to continue: "
-        );
-        match io::stdout().flush() {
-            Ok(()) => (),
-            Err(e) => return Err(e.into()),
-        }
-        util::wait_for_line()?;
-
-        // Passwords are utf8 and `String::from_utf8` explicitly does *not*
-        // copy the Vec<u8>.
-        let password = self.cdr.read("password")?;
-        let password = Zeroizing::new(String::from_utf8(password)?);
-        debug!("read password: {:?}", password.deref());
-
-        Ok(password)
+        let passwd = loop {
+            // if no cd is in the drive
+            if !self.cdr.is_cd_present()? {
+                get_media(&self.cdr)?;
+            }
+            // try to read
+            match self.cdr.read("password") {
+                Err(_) => {
+                    // failed to read from the password file
+                    info!("Failed to read password from CD");
+                    get_media(&self.cdr)?;
+                }
+                // return password wrapped in Zeroizing
+                Ok(p) => break Zeroizing::new(String::from_utf8(p)?),
+            }
+        };
+        Ok(passwd)
     }
+}
+
+fn get_media(cdr: &CdReader) -> Result<()> {
+    // eject the drive
+    match cdr.eject() {
+        Ok(()) => (),
+        Err(e) => return Err(e),
+    }
+
+    // prompt user for the cd
+    print!(
+        "Place authentication CD in the drive, close the drive, then press \n\
+           the \"Enter\" key to continue: "
+    );
+    match io::stdout().flush() {
+        Ok(()) => (),
+        Err(e) => return Err(e.into()),
+    }
+
+    // wait for user to press enter
+    util::wait_for_line()?;
+
+    // wait for media to "settle"
+    cdr.wait_for_media()
 }
 
 #[derive(Args, Clone, Debug, Default)]
