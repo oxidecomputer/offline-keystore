@@ -49,8 +49,10 @@ HASH=$(
 )
 info "CD in \"$CD_DEV\" has sha256 digest:\n$HASH"
 
-if [ "$PRINT" == "true" ] && lpstat -p ql-600 > /dev/null; then
-    lp -o PageSize=62x29mm <<< "$HASH" > /dev/null
-else
-    info "no printer found, the digest must be transcribed manually"
+if [ "$PRINT" == "true" ]; then
+    if lpstat -p ql-600 > /dev/null; then
+        lp -o PageSize=62x29mm <<< "$HASH" > /dev/null
+    else
+        info "no printer found, the digest must be transcribed manually"
+    fi
 fi
