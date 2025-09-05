@@ -11,6 +11,13 @@ if [ ! -e "$OUTPUT" ]; then
     mkdir -p "$OUTPUT"
 fi
 
+if ! blockdev --getsize64 "$CD_DEV" > /dev/null 2>&1; then
+    echo -ne "\nExpected CD in \"$CD_DEV\", please insert one, close the tray,\nthen press any key to continue:"
+    eject "$CD_DEV"
+    wait_for_key_press
+    echo -ne "\n"
+fi
+
 info "Starting terminal session recording."
 script \
     --timing="$OUTPUT"/script-timing.log \
