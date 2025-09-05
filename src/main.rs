@@ -773,6 +773,7 @@ fn main() -> Result<()> {
                         !no_backup,
                         args.transport,
                     )?;
+                    info!("Authentication successful");
 
                     hsm.generate(key_spec)
                 }
