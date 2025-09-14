@@ -9,12 +9,12 @@ wait_for_cd
 hash-cd
 eject
 
-echo -e "\nInsert the next OKOS disk into the CD drive, then press any key to continue ..."
+echo -e "\nInsert the next OKOS disk into the CD drive, then press the Enter key to continue ..."
 wait_for_key_press
 wait_for_cd
 hash-cd
 
-echo -e "\nPress any key to reboot into the next OKOS ..."
+echo -e "\nPress the Enter key to reboot into the next OKOS ..."
 wait_for_key_press
 
 # WARNING

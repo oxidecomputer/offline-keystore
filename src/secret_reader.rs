@@ -219,7 +219,7 @@ impl Iterator for StdioShareReader {
                     _ => {
                         print!(
                             "\nexpected 67 characters, got {}.\n\n\
-                            Press any key to try again ...",
+                            Press the Enter key to try again ...",
                             share.len()
                         );
                         match io::stdout().flush() {
@@ -238,7 +238,7 @@ impl Iterator for StdioShareReader {
                 Err(e) => {
                     print!(
                         "Error from `Stdin::read_line`: {e}\n\n\
-                        Press any key to try again ..."
+                        Press the Enter key to try again ..."
                     );
                     match io::stdout().flush() {
                         Ok(_) => (),
@@ -256,7 +256,7 @@ impl Iterator for StdioShareReader {
                 Err(_) => {
                     println!(
                         "Failed to convert the provided hex string into a \
-                        Share ... Press any key to try again",
+                        Share ... Press the Enter key to try again",
                     );
 
                     // wait for a keypress / 1 byte from stdin
@@ -380,7 +380,7 @@ impl Iterator for CdrShareReader {
 
         print!(
             "Place keyshare CD in the drive, close the drive, then press \n\
-               any key to continue: "
+               the Enter key to continue: "
         );
         match io::stdout().flush() {
             Ok(()) => (),
@@ -433,7 +433,7 @@ fn verify(verifier: &Vec<Verifier>, share: &Zeroizing<Share>) -> Result<bool> {
 
     let res = match verifier.verify_share(share.deref()) {
         Ok(_) => {
-            print!("\nShare verified!\n\nPress any key to continue ...");
+            print!("\nShare verified!\n\nPress the Enter key to continue ...");
             io::stdout().flush()?;
 
             // wait for a keypress / 1 byte from stdin
@@ -443,7 +443,7 @@ fn verify(verifier: &Vec<Verifier>, share: &Zeroizing<Share>) -> Result<bool> {
         }
         Err(_) => {
             print!(
-                "\nFailed to verify share :(\n\nPress any key to \
+                "\nFailed to verify share :(\n\nPress the Enter key to \
                 try again ..."
             );
             io::stdout().flush()?;
