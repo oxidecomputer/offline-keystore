@@ -4,6 +4,19 @@ set -euo pipefail
 
 . oks-lib.sh
 
+# NixOS generates `printers.conf` for us but we can't know the printers SN in
+# advance of the first ceremony where it's used. As a work-around we query cups
+# for the serial number for the attached printer and then swap it in
+# `printers.conf` with the place holder `SN_GOES_HERE`
+PRINTER_SN_REGEX='^direct[[:space:]]\+usb:\/\/Brother\/QL-600?serial=\(.*\)$'
+PRINTER_SN=$(lpinfo -v | sed -n "s/$PRINTER_SN_REGEX/\1/p")
+info "Label printer with SN: $PRINTER_SN found"
+
+systemctl stop cups.service
+sed -i "s/SN_GOES_HERE/$PRINTER_SN/g" /etc/cups/printers.conf
+systemctl start cups.service
+info "Label printer with SN: $PRINTER_SN configured"
+
 # assume system has just booted & OS CD is still in the drive
 wait_for_cd
 hash-cd
