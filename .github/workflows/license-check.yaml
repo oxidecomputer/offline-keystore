@@ -11,4 +11,4 @@ jobs:
       with:
         toolchain: 1.88
     - name: Check License Header
-      uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1
+      uses: apache/skywalking-eyes/header@6ac35584d6f923b6cb62f1ae8682c5bc60b537e4
