@@ -119,7 +119,7 @@ impl Hsm {
     pub fn import_backup_key(&mut self, key: BackupKey) -> Result<()> {
         info!(
             "Generating wrap / backup key from HSM PRNG with label: \"{}\"",
-            LABEL.to_string()
+            LABEL
         );
 
         info!("Storing wrap key in YubiHSM.");
