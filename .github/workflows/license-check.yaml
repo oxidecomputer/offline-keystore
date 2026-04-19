@@ -9,6 +9,6 @@ jobs:
     steps:
     - uses: actions/checkout@master
       with:
-        toolchain: 1.88
+        toolchain: 1.91
     - name: Check License Header
       uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1
