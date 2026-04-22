@@ -198,10 +198,7 @@ impl CdWriter {
     }
 
     pub fn write_password(&self, data: &Zeroizing<String>) -> Result<()> {
-        debug!(
-            "Writing password \"{}\"",
-            <Zeroizing<String> as AsRef<str>>::as_ref(data),
-        );
+        debug!("Writing password to CDW");
         self.iso_writer.add("password", data.deref().as_bytes())
     }
 
