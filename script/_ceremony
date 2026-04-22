@@ -37,6 +37,9 @@ sed -i "s/SN_GOES_HERE/$PRINTER_SN/g" /etc/cups/printers.conf
 systemctl start cups.service
 info "Label printer with SN: $PRINTER_SN configured"
 
+info "Storage usage before ceremony: "
+oks hsm storage-info --auth-method cdr
+
 info "Generating keys from keyspecs ..."
 oks hsm generate --auth-method cdr
 
@@ -45,3 +48,6 @@ oks ca --auth-method cdr initialize
 
 info "Signing requests intermediates & debug auth credentials"
 oks ca --auth-method cdr sign
+
+info "Storage usage after ceremony: "
+oks hsm storage-info --auth-method cdr

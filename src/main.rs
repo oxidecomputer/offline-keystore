@@ -175,6 +175,12 @@ enum HsmCommand {
         key_spec: PathBuf,
     },
 
+    /// Dump info about current storage usage
+    StorageInfo {
+        #[clap(flatten)]
+        auth_method: AuthInputArg,
+    },
+
     /// Initialize the YubiHSM for use in the OKS.
     // assume default auth for passwd, generate passwd w/ alphabet or stdin,
     // choose share dst: printer / cdr
@@ -776,6 +782,27 @@ fn main() -> Result<()> {
                     info!("Authentication successful");
 
                     hsm.generate(key_spec)
+                }
+                HsmCommand::StorageInfo { ref auth_method } => {
+                    let passwd = get_passwd(auth_id, auth_method, &command)?;
+                    let auth_id = get_auth_id(auth_id, &command);
+                    let hsm = Hsm::new(
+                        auth_id,
+                        &passwd,
+                        &args.output,
+                        &args.state,
+                        !no_backup,
+                        args.transport,
+                    )?;
+                    info!("Authentication successful");
+
+                    let info = hsm.get_storage_info()?;
+                    println!(
+                        "free records: {}/{}, free pages: {}/{} page size: {} bytes",
+                        info.free_records, info.total_records,
+                        info.free_pages, info.total_pages,
+                        info.page_size);
+                    Ok(())
                 }
                 HsmCommand::Restore {
                     ref backups,
