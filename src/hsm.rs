@@ -15,6 +15,7 @@ use std::{
 use thiserror::Error;
 use yubihsm::{
     authentication::{self, Key, DEFAULT_AUTHENTICATION_KEY_ID},
+    device::StorageInfo,
     object::{Id, Label, Type},
     wrap::{self, Message},
     AuditOption, Capability, Client, Connector, Credentials, Domain,
@@ -336,6 +337,10 @@ impl Hsm {
 
         debug!("writing attestation cert to: {}", attest_path.display());
         Ok(fs::write(&attest_path, attest_cert)?)
+    }
+
+    pub fn get_storage_info(self) -> Result<StorageInfo> {
+        Ok(self.client.get_storage_info()?)
     }
 }
 
