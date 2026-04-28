@@ -14,7 +14,7 @@ use std::{
     str::FromStr,
 };
 use thiserror::Error;
-use yubihsm::{
+pub use yubihsm::{
     asymmetric,
     object::{Id, Label},
     Capability, Domain,
