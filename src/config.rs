@@ -4,8 +4,8 @@
 
 use anyhow::Result;
 use log::{error, warn};
-use lpc55_sign::debug_auth::DebugCredentialSigningRequest;
-use num_bigint::BigUint;
+pub use lpc55_sign::debug_auth::DebugCredentialSigningRequest;
+pub use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display, Formatter},
