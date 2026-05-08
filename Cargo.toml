@@ -21,7 +21,7 @@ p256 = "0.13"
 pem-rfc7468 = { version = "1.0.0", features = ["alloc", "std"] }
 rand = "0.8.6"
 rand_core = { version = "0.6.4", features = ["std"] }
-rpassword = "7.4.0"
+rpassword = "7.5.0"
 serde = "1.0.228"
 serde_json = "1.0.149"
 serde_with = "3.18.0"
