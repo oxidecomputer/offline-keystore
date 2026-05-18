@@ -16,3 +16,4 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libudev-dev
       - run: cargo test --all-features
+      - uses: NathanielHill/fail-if-changes@master
